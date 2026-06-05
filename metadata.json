@@ -1,0 +1,9 @@
+{
+  "name": "AbookScan IA",
+  "description": "Scanner professionnel haute précision avec transcription intelligente pour documents et manuscrits.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": []
+}
