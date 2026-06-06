@@ -4,7 +4,7 @@ import {
   HelpCircle, QrCode, Sparkles, AlertCircle, ChevronRight
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface QRCodeModalProps {
   isOpen: boolean;
@@ -12,6 +12,7 @@ interface QRCodeModalProps {
   url: string;
   onInstall?: () => void;
   showInstallBtn?: boolean;
+  initialTab?: "share" | "install";
 }
 
 export default function QRCodeModal({ 
@@ -19,11 +20,28 @@ export default function QRCodeModal({
   onClose, 
   url,
   onInstall,
-  showInstallBtn = false
+  showInstallBtn = false,
+  initialTab = "share"
 }: QRCodeModalProps) {
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<"share" | "install">("share");
+  const [activeTab, setActiveTab] = useState<"share" | "install">(initialTab);
   const [installPlatform, setInstallPlatform] = useState<"android" | "ios" | "pc">("android");
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+      
+      // Auto-detect user platform for a personalized guide!
+      const userAgent = navigator.userAgent.toLowerCase();
+      if (/iphone|ipad|ipod/.test(userAgent)) {
+        setInstallPlatform("ios");
+      } else if (/android/.test(userAgent)) {
+        setInstallPlatform("android");
+      } else {
+        setInstallPlatform("pc");
+      }
+    }
+  }, [isOpen, initialTab]);
 
   const copyLink = () => {
     navigator.clipboard.writeText(url);

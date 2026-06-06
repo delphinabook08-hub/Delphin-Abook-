@@ -1,6 +1,24 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+
+function getAi() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("La clé d'API GEMINI_API_KEY n'est pas configurée dans les paramètres. Veuillez l'ajouter pour utiliser l'OCR.");
+    }
+    aiInstance = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+  }
+  return aiInstance;
+}
 
 export interface TranscriptionResult {
   text: string;
@@ -17,8 +35,8 @@ export async function transcribeHandwriting(base64Images: string | string[], mim
       },
     }));
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+    const response = await getAi().models.generateContent({
+      model: "gemini-3.5-flash",
       contents: {
         parts: [
           {
@@ -64,8 +82,9 @@ export async function transcribeHandwriting(base64Images: string | string[], mim
       text: result.text || "No text detected.",
       tableData: result.tableData && result.tableData.length > 0 ? result.tableData : undefined
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Transcription error:", error);
-    throw new Error("Failed to transcribe. Please try again.");
+    const parsedError = error?.message || error?.status || error?.toString() || "Transcription error";
+    throw new Error(`Erreur d'analyse IA : ${parsedError}`);
   }
 }

@@ -1,6 +1,6 @@
-import { useCallback, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Camera, Upload, X, Zap } from "lucide-react";
+import { Camera, Upload, X, Zap, Smartphone } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface ScannerProps {
@@ -18,6 +18,7 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
   const [hasTorch, setHasTorch] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const nativeInputRef = useRef<HTMLInputElement>(null);
 
   const toggleFlash = async () => {
     if (videoRef.current?.srcObject) {
@@ -37,32 +38,101 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
   const startCamera = async () => {
     setCameraError(null);
     setIsFlashOn(false);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
+
+    // Multi-stage progressive constraints designed for all versions of Android and browsers
+    const constraintStages = [
+      // Stage 1: Rear Camera, FHD Resolution
+      {
+        video: {
           facingMode: { ideal: "environment" },
           width: { ideal: 1920 },
           height: { ideal: 1080 }
-        } 
-      });
+        }
+      },
+      // Stage 2: Rear Camera, HD Resolution
+      {
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      },
+      // Stage 3: Broad Android back-facing camera
+      {
+        video: {
+          facingMode: "environment"
+        }
+      },
+      // Stage 4: Resilient fallback to any available capture stream
+      {
+        video: true
+      }
+    ];
+
+    let activeStream: MediaStream | null = null;
+    let succeeded = false;
+    let fallbackError: any = null;
+
+    for (const constraints of constraintStages) {
+      try {
+        activeStream = await navigator.mediaDevices.getUserMedia(constraints);
+        succeeded = true;
+        break;
+      } catch (err) {
+        fallbackError = err;
+        console.warn("Retrying with camera fallback stream due to:", err);
+      }
+    }
+
+    if (succeeded && activeStream) {
       setShowCamera(true);
+      const stream = activeStream;
       
       const track = stream.getVideoTracks()[0];
-      // Check for torch capability after a short delay to ensure track is ready
       setTimeout(() => {
-        const capabilities = track.getCapabilities() as any;
-        setHasTorch(!!capabilities?.torch);
+        try {
+          if (track && typeof track.getCapabilities === "function") {
+            const capabilities = track.getCapabilities() as any;
+            setHasTorch(!!capabilities?.torch);
+          } else {
+            setHasTorch(false);
+          }
+        } catch (_) {
+          setHasTorch(false);
+        }
       }, 500);
 
-      // Wait for next tick to ensure videoRef is available in the modal
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
       }, 100);
-    } catch (err) {
-      console.error("Camera error:", err);
-      setCameraError("Impossible d'accéder à la caméra. Vérifiez les permissions de votre navigateur.");
+    } else {
+      console.error("All media device capture streams failed:", fallbackError);
+      setCameraError(
+        "Impossible d'accéder au flux caméra direct. Utilisez l'appareil photo natif Android ci-dessous, cela fonctionne sur 100% des téléphones !"
+      );
+    }
+  };
+
+  const triggerNativeCapture = () => {
+    nativeInputRef.current?.click();
+  };
+
+  const handleNativeCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const readers = Array.from(files).map((file: any) => {
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+      });
+
+      Promise.all(readers).then(images => {
+        onImagesCaptured(images);
+      });
     }
   };
 
@@ -157,12 +227,13 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
         </motion.p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Direct live camera feed */}
         <motion.button
           whileHover={{ scale: 1.01, borderColor: "rgba(20, 184, 166, 0.4)" }}
           whileTap={{ scale: 0.99 }}
           onClick={startCamera}
-          className="flex flex-col items-center justify-center p-6 glass-card rounded-xl gap-3 group transition-all relative overflow-hidden tech-grid scanner-effect"
+          className="flex flex-col items-center justify-center p-6 glass-card rounded-xl gap-3 group transition-all relative overflow-hidden tech-grid scanner-effect text-left h-full w-full"
         >
           <div className="absolute top-2 left-2 w-3 h-3 border-t-2 border-l-2 border-teal-500/30 group-hover:border-teal-500 transition-colors" />
           <div className="absolute top-2 right-2 w-3 h-3 border-t-2 border-r-2 border-teal-500/30 group-hover:border-teal-500 transition-colors" />
@@ -170,22 +241,45 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
           <div className="absolute bottom-2 right-2 w-3 h-3 border-b-2 border-r-2 border-teal-500/30 group-hover:border-teal-500 transition-colors" />
           
           <div className="absolute inset-0 bg-teal-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity" />
-          <div className="p-3 rounded-lg bg-zinc-950/80 border border-white/5 group-hover:border-teal-500 group-hover:text-teal-400 text-slate-500 transition-all shadow-2xl group-hover:shadow-[0_0_30px_rgba(20,184,166,0.2)] relative z-10">
+          <div className="p-3 rounded-lg bg-zinc-950/80 border border-white/5 group-hover:border-teal-500 group-hover:text-teal-400 text-slate-500 transition-all shadow-2xl relative z-10">
             <Camera className="w-6 h-6" />
           </div>
           <div className="text-center relative z-10 space-y-1">
-            <span className="block font-display text-lg text-white tracking-tight">Capture Optique</span>
-            <span className={`inline-block px-2 py-0.5 rounded-full text-[7px] font-mono uppercase tracking-[0.2em] border transition-colors ${
-              cameraError ? "bg-red-500/10 text-red-400 border-red-500/20" : "bg-teal-500/10 text-teal-400 border-teal-500/20"
-            }`}>
-              {cameraError ? "Permissions" : "Flux IA Live"}
+            <span className="block font-display text-lg text-white tracking-tight">Viseur IA Live</span>
+            <span className="inline-block px-2 py-0.5 rounded-full text-[7px] font-mono uppercase tracking-[0.2em] border bg-teal-500/10 text-teal-400 border-teal-500/20">
+              Flux HTML5 Direct
             </span>
           </div>
         </motion.button>
 
+        {/* Native mobile camera fallback for older or restricted Android devices */}
+        <motion.button
+          whileHover={{ scale: 1.01, borderColor: "rgba(20, 184, 166, 0.4)" }}
+          whileTap={{ scale: 0.99 }}
+          onClick={triggerNativeCapture}
+          className="flex flex-col items-center justify-center p-6 glass-card rounded-xl gap-3 group transition-all relative overflow-hidden tech-grid scanner-effect text-left h-full w-full"
+        >
+          <div className="absolute top-2 left-2 w-3 h-3 border-t-2 border-l-2 border-teal-500/30 group-hover:border-teal-500 transition-colors" />
+          <div className="absolute top-2 right-2 w-3 h-3 border-t-2 border-r-2 border-teal-500/30 group-hover:border-teal-500 transition-colors" />
+          <div className="absolute bottom-2 left-2 w-3 h-3 border-b-2 border-l-2 border-teal-500/30 group-hover:border-teal-500 transition-colors" />
+          <div className="absolute bottom-2 right-2 w-3 h-3 border-b-2 border-r-2 border-teal-500/30 group-hover:border-teal-500 transition-colors" />
+          
+          <div className="absolute inset-0 bg-teal-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity" />
+          <div className="p-3 rounded-lg bg-zinc-950/80 border border-white/5 group-hover:border-teal-500 group-hover:text-teal-400 text-slate-500 transition-all shadow-2xl relative z-10">
+            <Smartphone className="w-6 h-6" />
+          </div>
+          <div className="text-center relative z-10 space-y-1">
+            <span className="block font-display text-lg text-white tracking-tight">Appareil Natif</span>
+            <span className="inline-block px-2 py-0.5 rounded-full text-[7px] font-mono uppercase tracking-[0.2em] border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+              Compatibilité 100%
+            </span>
+          </div>
+        </motion.button>
+
+        {/* Gallery / File selection */}
         <div
           {...getRootProps()}
-          className={`relative group cursor-pointer rounded-xl border transition-all p-6 flex flex-col items-center justify-center gap-3 glass-card overflow-hidden tech-grid ${
+          className={`relative group cursor-pointer rounded-xl border transition-all p-6 flex flex-col items-center justify-center gap-3 glass-card overflow-hidden tech-grid h-full ${
             isDragActive ? "border-teal-500 ring-4 ring-teal-500/10 bg-teal-950/20" : "border-white/5 hover:border-white/20"
           }`}
         >
@@ -202,11 +296,30 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
           <div className="text-center relative z-10 space-y-1">
             <span className="block font-display text-lg text-white tracking-tight">Importation</span>
             <span className="inline-block px-2 py-0.5 rounded-full bg-white/5 text-[7px] text-slate-500 font-mono uppercase tracking-[0.2em] border border-white/10">
-              Traitement Batch
+              Galerie & Fichiers
             </span>
           </div>
         </div>
       </div>
+
+      {cameraError && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs flex flex-col md:flex-row items-center justify-between gap-3 text-left"
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+            <span>{cameraError}</span>
+          </div>
+          <button
+            onClick={triggerNativeCapture}
+            className="px-4 py-2 bg-amber-500 text-black font-bold uppercase text-[9px] tracking-wider rounded-lg hover:bg-amber-400 transition-all shrink-0 shadow-lg"
+          >
+            Prendre une photo
+          </button>
+        </motion.div>
+      )}
 
       <AnimatePresence>
         {showCamera && (
@@ -321,6 +434,14 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
       </AnimatePresence>
 
       <canvas ref={canvasRef} className="hidden" />
+      <input 
+        type="file" 
+        accept="image/*" 
+        capture="environment" 
+        ref={nativeInputRef} 
+        onChange={handleNativeCapture} 
+        className="hidden" 
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-10 border-t border-white/5">
         {[

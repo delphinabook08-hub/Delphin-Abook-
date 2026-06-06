@@ -4,11 +4,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Stripe from "stripe";
 import dotenv from "dotenv";
+import { transcribeHandwriting } from "./src/lib/gemini";
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
@@ -21,7 +19,26 @@ async function startServer() {
     stripe = new Stripe(stripeSecretKey);
   }
 
-  app.use(express.json());
+  // Increase payload size limit to allow high-resolution multi-page scans (up to 20 pages)
+  app.use(express.json({ limit: "150mb" }));
+  app.use(express.urlencoded({ limit: "150mb", extended: true }));
+
+  // API Route for Handwrited Script OCR Transcription via Gemini
+  app.post("/api/transcribe", async (req, res) => {
+    const { base64Images, mimeType, language } = req.body;
+    
+    if (!base64Images || (Array.isArray(base64Images) && base64Images.length === 0)) {
+      return res.status(400).json({ error: "Aucune image n'a été fournie pour la transcription." });
+    }
+
+    try {
+      const result = await transcribeHandwriting(base64Images, mimeType || "image/jpeg", language || "French");
+      res.json(result);
+    } catch (err: any) {
+      console.error("Gemini Transcription Route Error:", err);
+      res.status(500).json({ error: err.message || "Échec de l'analyse OCR par l'IA. Veuillez réessayer." });
+    }
+  });
 
   // API Route for Stripe Checkout
   app.post("/api/create-checkout-session", async (req, res) => {

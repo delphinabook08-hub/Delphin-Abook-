@@ -11,6 +11,10 @@ interface SettingsModalProps {
   history: any[];
   onClearHistory: () => void;
   onSelectHistoryItem: (item: any) => void;
+  isPrivateMode: boolean;
+  onPrivateModeChange: (val: boolean) => void;
+  isScreenProtect: boolean;
+  onScreenProtectChange: (val: boolean) => void;
 }
 
 export default function SettingsModal({
@@ -21,7 +25,11 @@ export default function SettingsModal({
   languages,
   history,
   onClearHistory,
-  onSelectHistoryItem
+  onSelectHistoryItem,
+  isPrivateMode,
+  onPrivateModeChange,
+  isScreenProtect,
+  onScreenProtectChange
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<"general" | "history">("general");
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
@@ -103,6 +111,57 @@ export default function SettingsModal({
                           {lang.label}
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-6 border-t border-white/5 space-y-4">
+                    <label className="text-[10px] uppercase tracking-widest text-teal-500 font-bold block">Sécurité & Confidentialité</label>
+                    <div className="space-y-3">
+                      {/* Zero retention toggle */}
+                      <div className="flex items-center justify-between p-3.5 bg-white/5 rounded-2xl border border-white/5">
+                        <div className="space-y-0.5 text-left pr-4">
+                          <span className="block text-xs font-semibold text-white">Mode Zéro-Rétention</span>
+                          <span className="block text-[8px] text-slate-500 leading-relaxed font-light">
+                            Bloque l'historique et élimine les fichiers de la mémoire vive instantanément après traitement.
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onPrivateModeChange(!isPrivateMode)}
+                          className={`w-11 h-6 rounded-full p-0.5 transition-all shrink-0 cursor-pointer ${
+                            isPrivateMode ? "bg-teal-500" : "bg-zinc-800"
+                          }`}
+                        >
+                          <div
+                            className={`w-5 h-5 rounded-full bg-zinc-950 shadow-md transition-all ${
+                              isPrivateMode ? "translate-x-5" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {/* Screen protect toggle */}
+                      <div className="flex items-center justify-between p-3.5 bg-white/5 rounded-2xl border border-white/5">
+                        <div className="space-y-0.5 text-left pr-4">
+                          <span className="block text-xs font-semibold text-white">Masquage Écran Récents</span>
+                          <span className="block text-[8px] text-slate-500 leading-relaxed font-light">
+                            Floute l'application quand elle perd le focus ou lors du changement d'application sur Android.
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onScreenProtectChange(!isScreenProtect)}
+                          className={`w-11 h-6 rounded-full p-0.5 transition-all shrink-0 cursor-pointer ${
+                            isScreenProtect ? "bg-teal-500" : "bg-zinc-800"
+                          }`}
+                        >
+                          <div
+                            className={`w-5 h-5 rounded-full bg-zinc-950 shadow-md transition-all ${
+                              isScreenProtect ? "translate-x-5" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </div>
                   </div>
 

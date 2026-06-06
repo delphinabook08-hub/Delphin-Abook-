@@ -1,16 +1,20 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { motion } from "motion/react";
-import { Zap, Globe, CreditCard, LayoutGrid, FileText, Loader2, Settings, Share2, Smartphone } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Zap, Globe, CreditCard, LayoutGrid, FileText, Loader2, Settings, Share2, Smartphone, Sparkles, X } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
 import Scanner from "./components/Scanner";
 import ResultView from "./components/ResultView";
 import LoadingOverlay from "./components/LoadingOverlay";
 
-import { transcribeHandwriting, TranscriptionResult } from "./lib/gemini";
 import SettingsModal from "./components/SettingsModal";
 import QRCodeModal from "./components/QRCodeModal";
 import TermsModal from "./components/TermsModal";
 import OnboardingModal from "./components/OnboardingModal";
+
+export interface TranscriptionResult {
+  text: string;
+  tableData?: string[][];
+}
 
 const LANGUAGES = [
   { code: "French", label: "Français" },
@@ -61,15 +65,85 @@ export default function App() {
   });
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallBtn, setShowInstallBtn] = useState(false);
+  const [qrModalTab, setQrModalTab] = useState<"share" | "install">("share");
+  const [showFloatingInstallBanner, setShowFloatingInstallBanner] = useState(false);
+
+  // Advanced confidentiality features for maximum Android compliance
+  const [isPrivateMode, setIsPrivateMode] = useState(() => {
+    return localStorage.getItem("abookscan_private_mode") === "true";
+  });
+  const [isScreenProtect, setIsScreenProtect] = useState(() => {
+    return localStorage.getItem("abookscan_screen_protect") === "true";
+  });
+  const [isBlurred, setIsBlurred] = useState(false);
+
+  const handlePrivateModeChange = (val: boolean) => {
+    setIsPrivateMode(val);
+    localStorage.setItem("abookscan_private_mode", String(val));
+  };
+
+  const handleScreenProtectChange = (val: boolean) => {
+    setIsScreenProtect(val);
+    localStorage.setItem("abookscan_screen_protect", String(val));
+    if (!val) {
+      setIsBlurred(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleBlur = () => {
+      if (isScreenProtect) {
+        setIsBlurred(true);
+      }
+    };
+    const handleFocus = () => {
+      setIsBlurred(false);
+    };
+    const handleVisibilityUpdate = () => {
+      if (document.hidden && isScreenProtect) {
+        setIsBlurred(true);
+      } else {
+        setIsBlurred(false);
+      }
+    };
+
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityUpdate);
+
+    return () => {
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityUpdate);
+    };
+  }, [isScreenProtect]);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
       setShowInstallBtn(true);
+      const dismissed = sessionStorage.getItem("abookscan_install_dismissed") === "true";
+      if (!dismissed) {
+        setShowFloatingInstallBanner(true);
+      }
     };
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+
+    // Automative delayed check for general PWA promotion (e.g. mobile Safari)
+    const isCurrentlyStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    const dismissed = sessionStorage.getItem("abookscan_install_dismissed") === "true";
+
+    if (!isCurrentlyStandalone && !dismissed) {
+      const timer = setTimeout(() => {
+        setShowFloatingInstallBanner(true);
+      }, 5000);
+      return () => {
+        window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+        clearTimeout(timer);
+      };
+    }
 
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
@@ -85,6 +159,18 @@ export default function App() {
     }
     setDeferredPrompt(null);
     setShowInstallBtn(false);
+    setShowFloatingInstallBanner(false);
+  };
+
+  const handleDismissFloatingBanner = () => {
+    setShowFloatingInstallBanner(false);
+    sessionStorage.setItem("abookscan_install_dismissed", "true");
+  };
+
+  const handleOpenInstallGuide = () => {
+    setQrModalTab("install");
+    setIsQRModalOpen(true);
+    setShowFloatingInstallBanner(false);
   };
 
   useEffect(() => {
@@ -134,8 +220,8 @@ export default function App() {
       return;
     }
 
-    if (base64Array.length > 5 && !isPro) {
-      alert("La version gratuite est limitée à 5 pages par scan. Passez à Pro pour plus !");
+    if (base64Array.length > 20 && !isPro) {
+      alert("La version gratuite est limitée à 20 pages par scan. Passez à Pro pour plus !");
       return;
     }
 
@@ -145,20 +231,41 @@ export default function App() {
     
     try {
       const mimeType = "image/jpeg";
-      const result = await transcribeHandwriting(base64Array, mimeType, selectedLanguage);
+      
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          base64Images: base64Array,
+          mimeType,
+          language: selectedLanguage,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "La transcription a échoué. Veuillez réessayer.");
+      }
+
+      const result = await response.json();
       setTranscriptionResult(result);
       
-      const newHistoryItem = {
-        text: result.text,
-        preview: base64Array[0],
-        date: new Date().toLocaleString(),
-        images: base64Array,
-        result: result
-      };
-      
-      const updatedHistory = [newHistoryItem, ...history.slice(0, 19)]; // Limit to 20 items
-      setHistory(updatedHistory);
-      localStorage.setItem("abookscan_history", JSON.stringify(updatedHistory));
+      // Zero-Retention check: skip logging if in private mode
+      if (!isPrivateMode) {
+        const newHistoryItem = {
+          text: result.text,
+          preview: base64Array[0],
+          date: new Date().toLocaleString(),
+          images: base64Array,
+          result: result
+        };
+        
+        const updatedHistory = [newHistoryItem, ...history.slice(0, 19)]; // Limit to 20 items
+        setHistory(updatedHistory);
+        localStorage.setItem("abookscan_history", JSON.stringify(updatedHistory));
+      }
 
       if (!isPro) {
         const newCount = scanCount + 1;
@@ -174,8 +281,18 @@ export default function App() {
   };
 
   const handleReset = () => {
-    setCapturedImages([]);
-    setTranscriptionResult(null);
+    // Aggressive clearing for Private Mode document protection
+    if (isPrivateMode) {
+      setCapturedImages([]);
+      setTranscriptionResult(null);
+      // Explicit dereferencing of large base64 buffers to trigger instant browser garbage collection
+      try {
+        (window as any)._lastBuffer = null;
+      } catch (_) {}
+    } else {
+      setCapturedImages([]);
+      setTranscriptionResult(null);
+    }
     setError(null);
     if (!isPro && scanCount >= FREE_LIMIT) {
       setShowPaywall(true);
@@ -207,12 +324,38 @@ export default function App() {
   };
 
   const shareApp = async () => {
-    const appUrl = window.location.origin;
+    setQrModalTab("share");
     setIsQRModalOpen(true);
   };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-slate-300 font-sans selection:bg-teal-500/30 overflow-x-hidden relative">
+      {/* Privacy Task-Switcher Cover Backdrop */}
+      <AnimatePresence>
+        {isBlurred && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsBlurred(false)}
+            className="fixed inset-0 z-[200] bg-zinc-950/98 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-6 cursor-pointer pointer-events-auto"
+          >
+            <div className="max-w-md space-y-4 flex flex-col items-center pointer-events-none">
+              <div className="w-16 h-16 rounded-full bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-display font-light text-white">Écran Sécurisé Actif</h2>
+              <p className="text-xs text-slate-500 leading-relaxed max-w-xs">
+                Le masquage d'arrière-plan AbookScan est actif pour préserver la confidentialité de vos transcriptions et documents des aperçus multitâches Android.
+              </p>
+              <span className="text-[8px] font-mono uppercase tracking-[0.2em] text-teal-500/40 animate-pulse">Tapez n'importe où pour reprendre</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Cloud-inspired Background System */}
       <div className="fixed inset-0 z-0 bg-zinc-950 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-0 w-full h-full tech-grid opacity-10" />
@@ -337,6 +480,18 @@ export default function App() {
                          {isPro ? "Pro" : `${scanCount}/${FREE_LIMIT}`}
                        </span>
                     </div>
+
+                    {isPrivateMode && (
+                      <>
+                        <div className="h-4 w-[1px] bg-white/20 mx-1" />
+                        <div className="flex items-center gap-1.5 px-3 py-2 bg-teal-500/10 border border-teal-500/20 rounded-full whitespace-nowrap">
+                          <div className="w-1 h-1 rounded-full bg-teal-400 animate-pulse shadow-[0_0_8px_rgba(45,212,191,1)]" />
+                          <span className="text-[7px] font-mono uppercase tracking-widest text-teal-400 font-bold">
+                            Mode Privé
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -386,13 +541,18 @@ export default function App() {
           history={history}
           onClearHistory={clearHistory}
           onSelectHistoryItem={selectHistoryItem}
+          isPrivateMode={isPrivateMode}
+          onPrivateModeChange={handlePrivateModeChange}
+          isScreenProtect={isScreenProtect}
+          onScreenProtectChange={handleScreenProtectChange}
         />
         <QRCodeModal 
           isOpen={isQRModalOpen}
           onClose={() => setIsQRModalOpen(false)}
-          url={window.location.origin}
+          url={window.location.origin.includes("ais-dev-") ? window.location.origin.replace("ais-dev-", "ais-pre-") : window.location.origin}
           onInstall={handleInstallApp}
           showInstallBtn={showInstallBtn}
+          initialTab={qrModalTab}
         />
         <TermsModal 
           isOpen={isTermsOpen}
@@ -405,6 +565,60 @@ export default function App() {
             localStorage.setItem("abookscan_onboarded", "true");
           }}
         />
+
+        {/* Automatic Highly Visible PWA Install Banner */}
+        <AnimatePresence>
+          {showFloatingInstallBanner && (
+            <motion.div
+              initial={{ opacity: 0, y: 100, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 100, scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              className="fixed bottom-20 left-4 right-4 md:left-auto md:right-8 md:w-[380px] z-[100] p-5 rounded-3xl bg-zinc-900/98 border border-teal-500/20 shadow-[0_10px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl flex flex-col gap-4 text-left pointer-events-auto"
+            >
+              <button
+                onClick={handleDismissFloatingBanner}
+                className="absolute top-3.5 right-3.5 p-1 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                aria-label="Dismiss banner"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+
+              <div className="flex items-start gap-3 pr-6">
+                <div className="p-2.5 rounded-2xl bg-teal-500/10 border border-teal-500/20 shrink-0 text-teal-400">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[8px] font-mono uppercase tracking-widest text-teal-400 font-bold">Installation Rapide</span>
+                    <Sparkles className="w-3 h-3 text-teal-300 animate-pulse" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-white tracking-tight">Scanner en Pleine Vitesse</h3>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400 leading-relaxed font-light">
+                Ajoutez AbookScan sur votre écran d'accueil sans passer par l'App Store. Bénéficiez d'un accès instantané et d'un confort de scan accru !
+              </p>
+
+              <div className="flex gap-2.5 mt-1">
+                <button
+                  onClick={showInstallBtn ? handleInstallApp : handleOpenInstallGuide}
+                  className="flex-1 py-2.5 bg-teal-500 text-black font-bold text-[10px] uppercase tracking-wider rounded-xl hover:bg-teal-400 transition-all shadow-[0_0_15px_rgba(20,184,166,0.3)] text-center flex items-center justify-center gap-1.5"
+                >
+                  <Smartphone className="w-3 h-3" />
+                  {showInstallBtn ? "Installer l'App" : "Comment Installer"}
+                </button>
+                <button
+                  onClick={handleDismissFloatingBanner}
+                  className="px-4 py-2.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all text-center border border-white/5"
+                >
+                  Plus tard
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Footer / System Status */}
