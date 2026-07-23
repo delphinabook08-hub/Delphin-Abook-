@@ -51,6 +51,18 @@ export default function App() {
     }
     return saved === "true";
   });
+  
+  // Dynamic 3-month subscription expiration starting today
+  const [proExpiryDate] = useState<string>(() => {
+    let saved = localStorage.getItem("scriptscan_pro_expiry");
+    if (!saved) {
+      const date = new Date("2026-06-09T15:11:58Z");
+      date.setMonth(date.getMonth() + 3);
+      saved = date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+      localStorage.setItem("scriptscan_pro_expiry", saved);
+    }
+    return saved;
+  });
   const [showPaywall, setShowPaywall] = useState(false);
   const [isFinishingPayment, setIsFinishingPayment] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -60,8 +72,13 @@ export default function App() {
     return !localStorage.getItem("abookscan_onboarded");
   });
   const [history, setHistory] = useState<any[]>(() => {
-    const saved = localStorage.getItem("abookscan_history");
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem("abookscan_history");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse history from localStorage", e);
+      return [];
+    }
   });
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallBtn, setShowInstallBtn] = useState(false);
@@ -245,11 +262,22 @@ export default function App() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorText = await response.text().catch(() => "");
+        let errorData: any = {};
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (_) {}
         throw new Error(errorData.error || "La transcription a échoué. Veuillez réessayer.");
       }
 
-      const result = await response.json();
+      const responseText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        console.error("Transcribe JSON parse error:", e, responseText);
+        throw new Error("Le serveur de transcription a renvoyé une réponse invalide ou surchargée. Veuillez réessayer dans quelques instants.");
+      }
       setTranscriptionResult(result);
       
       // Zero-Retention check: skip logging if in private mode
@@ -477,7 +505,7 @@ export default function App() {
                     <div className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/5 rounded-full whitespace-nowrap">
                        <div className={`w-1 h-1 rounded-full ${isPro ? "bg-teal-500" : "bg-orange-500"}`} />
                        <span className="text-[8px] font-mono uppercase tracking-widest text-slate-500">
-                         {isPro ? "Pro" : `${scanCount}/${FREE_LIMIT}`}
+                         {isPro ? `Pro • Exp : ${proExpiryDate}` : `${scanCount}/${FREE_LIMIT}`}
                        </span>
                     </div>
 
@@ -545,6 +573,8 @@ export default function App() {
           onPrivateModeChange={handlePrivateModeChange}
           isScreenProtect={isScreenProtect}
           onScreenProtectChange={handleScreenProtectChange}
+          isPro={isPro}
+          proExpiryDate={proExpiryDate}
         />
         <QRCodeModal 
           isOpen={isQRModalOpen}
@@ -598,7 +628,7 @@ export default function App() {
               </div>
 
               <p className="text-[11px] text-slate-400 leading-relaxed font-light">
-                Ajoutez AbookScan sur votre écran d'accueil sans passer par l'App Store. Bénéficiez d'un accès instantané et d'un confort de scan accru !
+                Découvrez l'intégration Android TWA et PWA pour installer l'application instantanément sur votre écran d'accueil, avec un confort de scan complet et sans bordures !
               </p>
 
               <div className="flex gap-2.5 mt-1">

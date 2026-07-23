@@ -15,6 +15,8 @@ interface SettingsModalProps {
   onPrivateModeChange: (val: boolean) => void;
   isScreenProtect: boolean;
   onScreenProtectChange: (val: boolean) => void;
+  isPro?: boolean;
+  proExpiryDate?: string;
 }
 
 export default function SettingsModal({
@@ -29,7 +31,9 @@ export default function SettingsModal({
   isPrivateMode,
   onPrivateModeChange,
   isScreenProtect,
-  onScreenProtectChange
+  onScreenProtectChange,
+  isPro = false,
+  proExpiryDate = ""
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<"general" | "history">("general");
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
@@ -111,6 +115,30 @@ export default function SettingsModal({
                           {lang.label}
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-6 border-t border-white/5 space-y-3 font-sans">
+                    <label className="text-[10px] uppercase tracking-widest text-teal-500 font-bold block">Statut de l'Abonnement</label>
+                    <div className="p-4 bg-white/5 border border-white/5 rounded-2xl flex flex-col gap-2">
+                      <div className="flex justify-between items-center bg-transparent">
+                        <span className="text-xs text-slate-400">Type de Compte</span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-widest font-bold ${
+                          isPro ? "bg-teal-500/10 text-teal-400 border border-teal-500/20" : "bg-orange-500/10 text-orange-400 border border-orange-500/20"
+                        }`}>
+                          {isPro ? "ScriptScan Pro" : "Compte Gratuit"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center bg-transparent">
+                        <span className="text-xs text-slate-400">Période de Validité</span>
+                        <span className="text-xs text-slate-200 font-mono">{isPro ? "Abonnement 3 Mois" : "Limité" }</span>
+                      </div>
+                      {isPro && proExpiryDate && (
+                        <div className="flex justify-between items-center border-t border-white/5 pt-2 mt-1 bg-transparent">
+                          <span className="text-xs text-slate-400">Date d'Expiration</span>
+                          <span className="text-xs text-teal-400 font-bold font-mono">{proExpiryDate}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 

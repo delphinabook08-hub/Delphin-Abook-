@@ -173,13 +173,13 @@ export default function QRCodeModal({
               </div>
             )}
 
-            {/* Tab: PWA Installation Guide */}
+            {/* Tab: TWA & PWA Installation Guide */}
             {activeTab === "install" && (
               <div className="flex flex-col space-y-5">
                 <div className="text-center space-y-1">
                   <h2 className="text-xl font-display font-light text-white">Comment installer ?</h2>
                   <p className="text-[10px] uppercase tracking-widest text-slate-500">
-                    AbookScan est une application web progressive de haute technologie.
+                    AbookScan est une application de haute technologie compatible avec le protocole Android TWA (Trusted Web Activity).
                   </p>
                 </div>
 
@@ -249,26 +249,26 @@ export default function QRCodeModal({
                     <div className="space-y-4">
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-green-400" />
-                        <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400">Sur Google Chrome</span>
+                        <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400">Intégration Android TWA & PWA</span>
                       </div>
                       
                       <div className="space-y-3">
                         <div className="flex gap-3 items-start">
                           <div className="w-5 h-5 bg-white/5 rounded-full flex items-center justify-center text-[10px] text-teal-400 font-mono shrink-0 mt-0.5">1</div>
                           <p className="text-xs text-slate-300 leading-relaxed font-light">
-                            Ouvrez l'application web dans votre navigateur <strong className="text-white">Google Chrome</strong>.
+                            <strong className="text-white">Format TWA (Application Native)</strong> : Grâce à la liaison digitale sécurisée (Digital Asset Links), l'application s'ouvre sans barre d'adresse de recherche et offre une intégration système native (recharge, icône dédiée).
                           </p>
                         </div>
                         <div className="flex gap-3 items-start">
                           <div className="w-5 h-5 bg-white/5 rounded-full flex items-center justify-center text-[10px] text-teal-400 font-mono shrink-0 mt-0.5">2</div>
                           <p className="text-xs text-slate-300 leading-relaxed font-light">
-                            Appuyez sur le bouton de <strong className="text-white">Menu</strong> (les trois points verticaux en haut à droite).
+                            <strong className="text-white">En 1 clic</strong> : Si supporté, cliquez directement sur le bouton "Installer l'application" ci-dessus ou ouvrez le menu Chrome et faites <strong className="text-white">"Ajouter à l'écran d'accueil"</strong>.
                           </p>
                         </div>
                         <div className="flex gap-3 items-start">
                           <div className="w-5 h-5 bg-white/5 rounded-full flex items-center justify-center text-[10px] text-teal-400 font-mono shrink-0 mt-0.5">3</div>
                           <p className="text-xs text-slate-300 leading-relaxed font-light">
-                            Appuyez sur <strong className="text-white">"Installer l'application"</strong> ou <strong className="text-white">"Ajouter à l'écran d'accueil"</strong>.
+                            L'application s'ouvrira en plein écran complet, découplée du navigateur web.
                           </p>
                         </div>
                       </div>
@@ -350,7 +350,7 @@ export default function QRCodeModal({
             )}
 
             <p className="text-[8px] text-slate-600 text-center font-mono uppercase tracking-[0.2em] pt-2 border-t border-white/5">
-              AbookScan IA • Progressive Web App
+              AbookScan IA • Trusted Web Activity (TWA)
             </p>
           </motion.div>
         </motion.div>

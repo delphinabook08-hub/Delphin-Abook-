@@ -15,6 +15,9 @@ export default defineConfig(({mode}) => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      target: 'es2015',
+    },
     server: {
       hmr: process.env.DISABLE_HMR !== "true",
     },

@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Stripe from "stripe";
 import dotenv from "dotenv";
-import { transcribeHandwriting } from "./src/lib/gemini";
+import { transcribeHandwriting, formatTranscriptionText } from "./src/lib/gemini";
 
 dotenv.config();
 
@@ -40,6 +40,23 @@ async function startServer() {
     }
   });
 
+  // API Route for Handwrited Script Text Formatting (Formatting and structure styling)
+  app.post("/api/format", async (req, res) => {
+    const { text, style, language } = req.body;
+    
+    if (!text || text.trim() === "") {
+      return res.status(400).json({ error: "Aucun texte fourni pour la mise en forme brute." });
+    }
+
+    try {
+      const formattedText = await formatTranscriptionText(text, style || "standard", language || "French");
+      res.json({ formattedText });
+    } catch (err: any) {
+      console.error("Gemini Formatting Route Error:", err);
+      res.status(500).json({ error: err.message || "Échec de la mise en forme de texte par l'IA. Veuillez réessayer." });
+    }
+  });
+
   // API Route for Stripe Checkout
   app.post("/api/create-checkout-session", async (req, res) => {
     if (!stripe) {
@@ -54,8 +71,8 @@ async function startServer() {
             price_data: {
               currency: "usd",
               product_data: {
-                name: "ScriptScan Pro Lifetime License",
-                description: "Unlimited handwriting OCR, Word/Excel exports, and premium support.",
+                name: "ScriptScan Pro - Accès 3 Mois",
+                description: "Accès illimité pendant 3 mois à l'OCR d'écriture manuscrite, exports Word/Excel, et support premium.",
               },
               unit_amount: 500, // $5.00
             },

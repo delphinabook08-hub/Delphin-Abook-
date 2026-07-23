@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { Camera, Upload, X, Zap, Smartphone } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { compressImagesInParallel } from "../lib/imageCompressor";
 
 interface ScannerProps {
   onImagesCaptured: (base64Array: string[]) => void;
@@ -38,6 +39,14 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
   const startCamera = async () => {
     setCameraError(null);
     setIsFlashOn(false);
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.warn("Direct HTML5 mediaDevices camera is not supported in this environment (WebView, non-HTTPS, or older Android browser).");
+      setCameraError(
+        "Votre navigateur ou version d'Android restreint l'accès direct à la caméra (ou vous n'êtes pas sur un site sécurisé HTTPS). Utilisez l'appareil photo natif Android ci-dessous, il est 100% compatible !"
+      );
+      return;
+    }
 
     // Multi-stage progressive constraints designed for all versions of Android and browsers
     const constraintStages = [
@@ -131,7 +140,9 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
       });
 
       Promise.all(readers).then(images => {
-        onImagesCaptured(images);
+        compressImagesInParallel(images).then(compressedImages => {
+          onImagesCaptured(compressedImages);
+        });
       });
     }
   };
@@ -150,7 +161,7 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
-      const MAX_WIDTH = 1600;
+      const MAX_WIDTH = 1000; // Optimized to 1000 for ultra-fast uploads & optimal Gemini 3.5 Flash transcription
       let width = video.videoWidth;
       let height = video.videoHeight;
       
@@ -164,7 +175,7 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(video, 0, 0, width, height);
       
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.65);
       setCapturedPages(prev => [...prev, dataUrl]);
       
       setTimeout(() => setIsCapturing(false), 200);
@@ -193,7 +204,9 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
     });
 
     Promise.all(readers).then(images => {
-      onImagesCaptured(images);
+      compressImagesInParallel(images).then(compressed => {
+        onImagesCaptured(compressed);
+      });
     });
   }, [onImagesCaptured]);
 

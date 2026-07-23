@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { 
   Check, Copy, Edit2, Save, FileText, Table as TableIcon, 
-  Share2, RotateCcw, Trash2, X, Download
+  Share2, RotateCcw, Trash2, X, Download, Sparkles, Undo2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import confetti from "canvas-confetti";
@@ -25,6 +25,69 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [pendingFormat, setPendingFormat] = useState<"word" | "pdf" | "excel" | null>(null);
+
+  // States for automatic AI formatting
+  const [isFormatMenuOpen, setIsFormatMenuOpen] = useState(false);
+  const [isFormatting, setIsFormatting] = useState(false);
+  const [previousTexts, setPreviousTexts] = useState<string[]>([]);
+
+  const handleAIFormatting = async (style: string) => {
+    if (isFormatting) return;
+    setIsFormatting(true);
+    setIsFormatMenuOpen(false);
+
+    try {
+      const response = await fetch("/api/format", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: editableText,
+          style: style,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        let errorData: any = {};
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (_) {}
+        throw new Error(errorData.error || "Impossible de communiquer avec le serveur pour la mise en forme.");
+      }
+
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error("Format JSON parse error:", e, responseText);
+        throw new Error("Le serveur a renvoyé une réponse invalide pour la mise en forme. Veuillez réessayer.");
+      }
+      if (data.formattedText) {
+        setPreviousTexts(prev => [...prev, editableText]);
+        setEditableText(data.formattedText);
+        confetti({
+          particleCount: 100,
+          spread: 80,
+          colors: ["#14b8a6", "#3b82f6", "#ffffff"]
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Impossible de réaliser la mise en forme de texte par l'IA.");
+    } finally {
+      setIsFormatting(false);
+    }
+  };
+
+  const handleUndo = () => {
+    if (previousTexts.length === 0) return;
+    const prevText = previousTexts[previousTexts.length - 1];
+    setEditableText(prevText);
+    setPreviousTexts(prev => prev.slice(0, prev.length - 1));
+  };
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(editableText);
@@ -158,7 +221,87 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
+          {previousTexts.length > 0 && (
+            <button
+              onClick={handleUndo}
+              title="Annuler le dernier formatage IA"
+              className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 border border-red-500/25 text-red-400 rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all shadow-md"
+            >
+              <Undo2 className="w-4 h-4" /> Annuler IA
+            </button>
+          )}
+
+          <div className="relative">
+            <button 
+              onClick={() => setIsFormatMenuOpen(!isFormatMenuOpen)} 
+              disabled={isFormatting}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
+                isFormatMenuOpen || isFormatting
+                ? "bg-teal-500 text-black shadow-[0_0_20px_rgba(20,184,166,0.4)]" 
+                : "bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/30"
+              }`}
+            >
+              <Sparkles className={`w-4 h-4 ${isFormatting ? "animate-spin" : "animate-pulse"}`} />
+              {isFormatting ? "Formatage..." : "Mise en forme IA"}
+            </button>
+
+            <AnimatePresence>
+              {isFormatMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsFormatMenuOpen(false)} />
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute right-0 mt-2 w-72 bg-zinc-900 border border-white/10 rounded-2xl p-4 shadow-2xl z-50 space-y-2.5 text-left"
+                  >
+                    <div className="pb-2 border-b border-white/5">
+                      <h4 className="text-[10px] uppercase tracking-widest font-bold text-teal-400 font-sans">Mettre en forme automatiquement</h4>
+                      <p className="text-[9px] text-slate-400 leading-normal">Optimisez le texte de votre scan par l'IA</p>
+                    </div>
+
+                    <button
+                      onClick={() => handleAIFormatting("standard")}
+                      className="w-full text-left p-2 hover:bg-white/5 rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent"
+                    >
+                      <span className="text-xs text-white font-medium">Standard (Aéré & Propre)</span>
+                      <span className="text-[9px] text-slate-400">Paragraphes fluides, correction orthographique robuste</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleAIFormatting("bullets")}
+                      className="w-full text-left p-2 hover:bg-white/5 rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent"
+                    >
+                      <span className="text-xs text-white font-medium">Liste à puces logique</span>
+                      <span className="text-[9px] text-slate-400">Convertit le texte en points clés et tirets lisibles</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleAIFormatting("resume")}
+                      className="w-full text-left p-2 hover:bg-white/5 rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent"
+                    >
+                      <span className="text-xs text-white font-medium">Structure Rapport / Synthèse</span>
+                      <span className="text-[9px] text-slate-400">Ajout d'en-têtes, divisions claires et sections</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleAIFormatting("formal")}
+                      className="w-full text-left p-2 hover:bg-white/5 rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent"
+                    >
+                      <span className="text-xs text-white font-medium">Courrier & E-mail Formel</span>
+                      <span className="text-[9px] text-slate-400">S'adapte au format lettre officielle polie</span>
+                    </button>
+                    
+                    <div className="pt-2 text-center border-t border-white/5">
+                      <span className="text-[7px] uppercase tracking-widest font-mono text-slate-500">AbookScan AI Auto-formatting</span>
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+
           <button 
             onClick={() => setIsEditing(!isEditing)} 
             className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
@@ -215,6 +358,28 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
             ? "bg-zinc-950 border-2 border-teal-500/30 rounded-[2.5rem] shadow-[0_0_50px_rgba(20,184,166,0.1)]" 
             : "bg-zinc-900 shadow-xl border border-white/5 rounded-3xl"
           }`}>
+            <AnimatePresence>
+              {isFormatting && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-black/75 backdrop-blur-sm z-30 flex flex-col items-center justify-center gap-4 text-center p-6 rounded-3xl"
+                >
+                  <div className="relative">
+                    <div className="w-16 h-16 border-t-2 border-b-2 border-teal-500 rounded-full animate-spin" />
+                    <Sparkles className="w-6 h-6 text-teal-400 absolute inset-0 m-auto animate-pulse" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-white tracking-tight">Mise en forme IA en cours...</p>
+                    <p className="text-xs text-slate-400 leading-relaxed font-light">
+                      L'IA de haute précision réorganise et corrige l'écriture manuscrite...
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <div className="flex-1 overflow-y-auto no-scrollbar p-10">
               {isEditing ? (
                 <textarea
