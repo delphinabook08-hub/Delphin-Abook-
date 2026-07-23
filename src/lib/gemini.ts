@@ -51,6 +51,120 @@ function serializeError(err: any): string {
 }
 
 /**
+ * Robust JSON parser with multi-stage recovery for AI outputs.
+ * Handles markdown fences, unescaped newlines, truncated JSON strings, and regex fallbacks.
+ */
+function safeParseJson<T = any>(rawText: string | undefined | null): T | null {
+  if (!rawText) return null;
+
+  let clean = rawText.trim();
+
+  // Strip markdown code block wrappers if present
+  if (clean.startsWith("```")) {
+    clean = clean.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  }
+
+  // 1. Direct parse attempt
+  try {
+    return JSON.parse(clean);
+  } catch (e) {
+    // Continue
+  }
+
+  // 2. Sanitize unescaped control characters inside string values
+  try {
+    const sanitized = clean.replace(/[\u0000-\u001F]+/g, (match) => {
+      if (match === "\n") return "\\n";
+      if (match === "\r") return "\\r";
+      if (match === "\t") return "\\t";
+      return "";
+    });
+    return JSON.parse(sanitized);
+  } catch (e) {
+    // Continue
+  }
+
+  // 3. Repair truncated JSON (close unclosed quotes and brackets)
+  try {
+    let repaired = clean;
+    let inString = false;
+    let isEscaped = false;
+
+    for (let i = 0; i < repaired.length; i++) {
+      const char = repaired[i];
+      if (char === '\\' && !isEscaped) {
+        isEscaped = true;
+      } else {
+        if (char === '"' && !isEscaped) {
+          inString = !inString;
+        }
+        isEscaped = false;
+      }
+    }
+
+    if (inString) {
+      repaired += '"';
+    }
+
+    const stack: string[] = [];
+    inString = false;
+    isEscaped = false;
+    for (let i = 0; i < repaired.length; i++) {
+      const char = repaired[i];
+      if (char === '\\' && !isEscaped) {
+        isEscaped = true;
+        continue;
+      }
+      if (char === '"' && !isEscaped) {
+        inString = !inString;
+      } else if (!inString) {
+        if (char === '{' || char === '[') {
+          stack.push(char);
+        } else if (char === '}') {
+          if (stack[stack.length - 1] === '{') stack.pop();
+        } else if (char === ']') {
+          if (stack[stack.length - 1] === '[') stack.pop();
+        }
+      }
+      isEscaped = false;
+    }
+
+    while (stack.length > 0) {
+      const open = stack.pop();
+      if (open === '{') repaired += '}';
+      if (open === '[') repaired += ']';
+    }
+
+    return JSON.parse(repaired);
+  } catch (e) {
+    // Continue
+  }
+
+  // 4. Regex extraction for "text" field
+  try {
+    const textMatch = clean.match(/"text"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"|"\s*\}|$)/);
+    if (textMatch && textMatch[1]) {
+      let extractedText = textMatch[1]
+        .replace(/\\n/g, "\n")
+        .replace(/\\r/g, "\r")
+        .replace(/\\t/g, "\t")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\");
+      return { text: extractedText } as unknown as T;
+    }
+  } catch (e) {
+    // Continue
+  }
+
+  // 5. If plain text without JSON markers
+  if (!clean.startsWith("{") && !clean.startsWith("[")) {
+    return { text: clean } as unknown as T;
+  }
+
+  return null;
+}
+
+/**
  * Executes a Gemini API generateContent call with active retry loops, exponential backoff,
  * and high-availability model fallback to handle 503 (spikes in demand / temporary unavailability)
  * and 429 (Resource Exhausted) errors gracefully.
@@ -62,11 +176,11 @@ async function reliableGenerateContent(params: {
 }): Promise<any> {
   // A sequential, safe model fallback list.
   // If the primary model fails after multiple retries, we fallback to other highly available engines.
-  const modelsToTry = [
+  const modelsToTry = Array.from(new Set([
     params.model,
-    "gemini-flash-latest",
-    "gemini-3.1-flash-lite"
-  ];
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
+  ]));
   let lastError: any = null;
 
   for (const currentModel of modelsToTry) {
@@ -127,9 +241,15 @@ async function reliableGenerateContent(params: {
 export interface TranscriptionResult {
   text: string;
   tableData?: string[][]; // Array of rows, each row is an array of cells
+  isRawScan?: boolean;
 }
 
-export async function transcribeHandwriting(base64Images: string | string[], mimeType: string, language: string = "English"): Promise<TranscriptionResult> {
+export async function transcribeHandwriting(
+  base64Images: string | string[], 
+  mimeType: string, 
+  language: string = "English",
+  rawScan: boolean = false
+): Promise<TranscriptionResult> {
   try {
     const images = Array.isArray(base64Images) ? base64Images : [base64Images];
     const imageParts = images.map(img => ({
@@ -139,26 +259,37 @@ export async function transcribeHandwriting(base64Images: string | string[], mim
       },
     }));
 
+    const promptText = rawScan 
+      ? `Transcribe the text in these images in ${language} EXACTLY as written (VERBATIM).
+        CRITICAL RULES FOR RAW DOCUMENT SCANNING:
+        1. Do NOT perform any auto-correction, spell checking, or AI styling modifications.
+        2. Keep the exact spelling, punctuation, capitalization, line breaks, and structure of the original document.
+        3. Do NOT add any summary or Word structural conversions.
+        4. Begin each page transcription with a clear marker "[--- Page X ---]".
+        5. Provide the exact raw text transcription in the 'text' field.`
+      : `Transcribe the handwriting in these images in ${language}. 
+        Analyze the document carefully:
+        1. Provide the full transcription of ALL pages as plain text in the 'text' field.
+        2. IMPORTANT: Begin the transcription of each individual image/page with a clear marker like "[--- Page X ---]" where X is the page number.
+        3. APPLY AUTO-CORRECTION: Fix common typos, spelling mistakes, and obvious grammatical errors while preserving the original meaning and intent.
+        4. EXCEL EXTRACTION (tableData): Focus on detecting structured tables defined by large black lines (grandes lignes noires). 
+        5. EXCLUSIVE MANUSCRIPT EXTRACTION: For the 'tableData' (Excel) specifically, extract ONLY handwritten information (manuscripts).
+        6. IGNORE TYPED/PRE-FILLED TEXT: Strictly ignore all pre-printed, typed, or already entered characters in the table. Focus on capturing only the additions written in BLUE and RED ink.
+        7. If no table is found or if no blue/red handwriting is present in a table context, 'tableData' should be empty or omitted.
+        8. Preserve the natural reading order across all pages.`;
+
     const response = await reliableGenerateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: {
         parts: [
           {
-            text: `Transcribe the handwriting in these images in ${language}. 
-            Analyze the document carefully:
-            1. Provide the full transcription of ALL pages as plain text in the 'text' field.
-            2. IMPORTANT: Begin the transcription of each individual image/page with a clear marker like "[--- Page X ---]" where X is the page number.
-            3. APPLY AUTO-CORRECTION: Fix common typos, spelling mistakes, and obvious grammatical errors while preserving the original meaning and intent.
-            4. EXCEL EXTRACTION (tableData): Focus on detecting structured tables defined by large black lines (grandes lignes noires). 
-            5. EXCLUSIVE MANUSCRIPT EXTRACTION: For the 'tableData' (Excel) specifically, extract ONLY handwritten information (manuscripts).
-            6. IGNORE TYPED/PRE-FILLED TEXT: Strictly ignore all pre-printed, typed, or already entered characters in the table. Focus on capturing only the additions written in BLUE and RED ink.
-            7. If no table is found or if no blue/red handwriting is present in a table context, 'tableData' should be empty or omitted.
-            8. Preserve the natural reading order across all pages.`,
+            text: promptText,
           },
           ...imageParts,
         ],
       },
       config: {
+        maxOutputTokens: 8192,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -181,10 +312,11 @@ export async function transcribeHandwriting(base64Images: string | string[], mim
       },
     });
 
-    const result = JSON.parse(response.text || "{}");
+    const result = safeParseJson(response.text) || {};
     return {
       text: result.text || "No text detected.",
-      tableData: result.tableData && result.tableData.length > 0 ? result.tableData : undefined
+      tableData: result.tableData && result.tableData.length > 0 ? result.tableData : undefined,
+      isRawScan: rawScan
     };
   } catch (error: any) {
     console.error("Transcription error:", error);
@@ -231,7 +363,7 @@ export async function formatTranscriptionText(text: string, style: string, langu
     }
 
     const response = await reliableGenerateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: [
         {
           text: `${instruction}
@@ -274,3 +406,108 @@ ${text}
     throw new Error(`Erreur de formatage par l'IA : ${userFriendlyError}`);
   }
 }
+
+export interface AudioTranscriptionResult {
+  text: string;
+  summary?: string;
+  keyPoints?: string[];
+}
+
+export async function transcribeAudio(
+  base64Audio: string,
+  mimeType: string = "audio/webm",
+  language: string = "French",
+  promptMode: "formatted" | "verbatim" | "meeting_notes" = "formatted"
+): Promise<AudioTranscriptionResult> {
+  try {
+    const cleanData = base64Audio.includes(",") ? base64Audio.split(",")[1] : base64Audio;
+
+    let modeInstruction = "";
+    if (promptMode === "verbatim") {
+      modeInstruction = "Transcris mot à mot l'intégralité de l'audio sans omission ni reformulation.";
+    } else if (promptMode === "meeting_notes") {
+      modeInstruction = "Génère un compte-rendu structuré de l'enregistrement vocal comprenant une synthèse, les décisions clés, les actions à mener et le résumé détaillé.";
+    } else {
+      modeInstruction = "Transcris fidèlement et clairement tout ce qui est dit dans l'audio. Corrige les fautes d'inattention, la ponctuation et découpe en paragraphes lisibles.";
+    }
+
+    const response = await reliableGenerateContent({
+      model: "gemini-2.5-flash",
+      contents: {
+        parts: [
+          {
+            text: `Vous êtes un système professionnel de transcription vocale et audio haute définition (Speech-to-Text par l'IA Gemini).
+Langue cible demandée : ${language}.
+
+Directives :
+${modeInstruction}
+
+Règles de sortie JSON :
+1. "text": La transcription textuelle complète et fluide en ${language}.
+2. "summary": Une synthèse claire de 2-3 phrases sur le contenu de l'enregistrement.
+3. "keyPoints": Un tableau (array de strings) des points clés ou idées principales soulevées dans l'enregistrement vocal.`,
+          },
+          {
+            inlineData: {
+              mimeType: mimeType || "audio/webm",
+              data: cleanData,
+            },
+          },
+        ],
+      },
+      config: {
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            text: {
+              type: Type.STRING,
+              description: "La transcription intégrale du message vocal ou audio.",
+            },
+            summary: {
+              type: Type.STRING,
+              description: "Résumé synthétique du fichier audio.",
+            },
+            keyPoints: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "Points clés de la dictée vocale.",
+            },
+          },
+          required: ["text"],
+        },
+      },
+    });
+
+    const result = safeParseJson(response.text) || {};
+    return {
+      text: result.text || (typeof response.text === "string" ? response.text : "Aucune parole identifiée dans l'enregistrement audio."),
+      summary: result.summary,
+      keyPoints: result.keyPoints && result.keyPoints.length > 0 ? result.keyPoints : undefined,
+    };
+  } catch (error: any) {
+    console.error("Audio Transcription error:", error);
+    const errorDetail = serializeError(error);
+    let userFriendlyError = error?.message || error?.toString() || "Erreur de transcription audio";
+    const fullErrStr = (errorDetail + " " + userFriendlyError).toLowerCase();
+
+    if (
+      fullErrStr.includes("503") || 
+      fullErrStr.includes("unavailable") || 
+      fullErrStr.includes("demand") ||
+      fullErrStr.includes("temporary") ||
+      fullErrStr.includes("overloaded")
+    ) {
+      userFriendlyError = "Le service de transcription vocale Gemini est temporairement très sollicité. Veuillez réessayer dans quelques secondes.";
+    } else if (
+      fullErrStr.includes("429") || 
+      fullErrStr.includes("exhausted") || 
+      fullErrStr.includes("rate limit")
+    ) {
+      userFriendlyError = "Limite de requêtes audio atteinte. Veuillez patienter un instant avant de retenter.";
+    }
+    throw new Error(`Échec de la transcription vocale : ${userFriendlyError}`);
+  }
+}
+

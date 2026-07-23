@@ -1,8 +1,9 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Zap, Globe, CreditCard, LayoutGrid, FileText, Loader2, Settings, Share2, Smartphone, Sparkles, X } from "lucide-react";
+import { Zap, Globe, CreditCard, LayoutGrid, FileText, Loader2, Settings, Share2, Smartphone, Sparkles, X, Mic, Camera } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
 import Scanner from "./components/Scanner";
+import VoiceRecorder from "./components/VoiceRecorder";
 import ResultView from "./components/ResultView";
 import LoadingOverlay from "./components/LoadingOverlay";
 
@@ -36,6 +37,7 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState("French");
+  const [activeTab, setActiveTab] = useState<"ocr" | "raw_scan" | "voice">("ocr");
   
   // New: Usage tracking for monetization
   const [scanCount, setScanCount] = useState(() => {
@@ -258,6 +260,7 @@ export default function App() {
           base64Images: base64Array,
           mimeType,
           language: selectedLanguage,
+          rawScan: activeTab === "raw_scan",
         }),
       });
 
@@ -302,6 +305,93 @@ export default function App() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transcription failed");
+      console.error(err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleAudioCaptured = async (
+    base64Audio: string,
+    mimeType: string,
+    promptMode: "formatted" | "verbatim" | "meeting_notes"
+  ) => {
+    if (!isPro && scanCount >= FREE_LIMIT) {
+      setShowPaywall(true);
+      return;
+    }
+
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/transcribe-audio", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          audioBase64: base64Audio,
+          mimeType,
+          language: selectedLanguage,
+          promptMode,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        let errorData: any = {};
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (_) {}
+        throw new Error(errorData.error || "La transcription vocale a échoué. Veuillez réessayer.");
+      }
+
+      const responseText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        console.error("Audio Transcribe JSON parse error:", e, responseText);
+        throw new Error("Le serveur a renvoyé une réponse invalide pour l'audio. Veuillez réessayer.");
+      }
+
+      let combinedText = result.text;
+      if (result.summary) {
+        combinedText = `📌 SYNTHÈSE VOCALE :\n${result.summary}\n\n` + combinedText;
+      }
+      if (result.keyPoints && result.keyPoints.length > 0) {
+        combinedText += `\n\n🔑 POINTS CLÉS :\n` + result.keyPoints.map((kp: string) => `• ${kp}`).join("\n");
+      }
+
+      const finalResult = {
+        text: combinedText,
+      };
+
+      setTranscriptionResult(finalResult);
+
+      if (!isPrivateMode) {
+        const newHistoryItem = {
+          text: finalResult.text,
+          preview: "https://cdn-icons-png.flaticon.com/512/3235/3235042.png",
+          date: new Date().toLocaleString(),
+          images: [],
+          result: finalResult,
+          type: "audio"
+        };
+        
+        const updatedHistory = [newHistoryItem, ...history.slice(0, 19)];
+        setHistory(updatedHistory);
+        localStorage.setItem("abookscan_history", JSON.stringify(updatedHistory));
+      }
+
+      if (!isPro) {
+        const newCount = scanCount + 1;
+        setScanCount(newCount);
+        localStorage.setItem("scriptscan_count", newCount.toString());
+      }
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : "Échec de la transcription vocale");
       console.error(err);
     } finally {
       setIsProcessing(false);
@@ -528,12 +618,69 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="flex-1 flex flex-col justify-center"
+              className="flex-1 flex flex-col justify-center space-y-6"
             >
-              <Scanner 
-                onImagesCaptured={handleImagesCaptured} 
-                selectedLanguage={selectedLanguage}
-              />
+              {/* Mode Selector Tabs (OCR vs Raw Document Scan vs Voice Dictation) */}
+              <div className="flex flex-wrap items-center justify-center gap-2.5 pt-8 sm:pt-4">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("ocr")}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${
+                    activeTab === "ocr"
+                      ? "bg-teal-500 text-black shadow-[0_0_20px_rgba(20,184,166,0.4)] scale-105"
+                      : "bg-zinc-900/90 text-slate-400 hover:text-white border border-white/10"
+                  }`}
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>📷 Scan & OCR IA</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("raw_scan")}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${
+                    activeTab === "raw_scan"
+                      ? "bg-gradient-to-r from-emerald-500 to-teal-400 text-black shadow-[0_0_20px_rgba(16,185,129,0.4)] scale-105"
+                      : "bg-zinc-900/90 text-slate-400 hover:text-white border border-white/10"
+                  }`}
+                >
+                  <FileText className="w-4 h-4 text-emerald-400" />
+                  <span>📄 Numérisation Brute (Sans Word)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("voice")}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${
+                    activeTab === "voice"
+                      ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)] scale-105"
+                      : "bg-zinc-900/90 text-slate-400 hover:text-white border border-white/10"
+                  }`}
+                >
+                  <Mic className="w-4 h-4 text-indigo-400 animate-pulse" />
+                  <span>🎙️ Dictée Vocale HD</span>
+                </button>
+              </div>
+
+              {activeTab === "raw_scan" && (
+                <div className="max-w-md mx-auto p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-300 text-xs text-center flex items-center justify-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span><strong>Numérisation Brute Directe :</strong> Vos documents sont numérisés tels quels en qualité HD, sans modification, correction ni transformation en Word.</span>
+                </div>
+              )}
+
+              {activeTab === "ocr" || activeTab === "raw_scan" ? (
+                <Scanner 
+                  onImagesCaptured={handleImagesCaptured} 
+                  selectedLanguage={selectedLanguage}
+                />
+              ) : (
+                <VoiceRecorder
+                  onAudioCaptured={handleAudioCaptured}
+                  selectedLanguage={selectedLanguage}
+                  isProcessing={isProcessing}
+                />
+              )}
             </motion.div>
           </div>
         )}

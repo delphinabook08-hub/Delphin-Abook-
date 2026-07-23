@@ -1,7 +1,8 @@
-import { useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { 
   Check, Copy, Edit2, Save, FileText, Table as TableIcon, 
-  Share2, RotateCcw, Trash2, X, Download, Sparkles, Undo2
+  Share2, RotateCcw, Trash2, X, Download, Sparkles, Undo2,
+  Send, Mail, MessageSquare, Printer, CheckCircle2, ExternalLink
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import confetti from "canvas-confetti";
@@ -30,6 +31,74 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
   const [isFormatMenuOpen, setIsFormatMenuOpen] = useState(false);
   const [isFormatting, setIsFormatting] = useState(false);
   const [previousTexts, setPreviousTexts] = useState<string[]>([]);
+
+  // States for Direct Send / Numérisation & Envoi Direct
+  const [isDirectSendOpen, setIsDirectSendOpen] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [emailSubject, setEmailSubject] = useState(`[AbookScan] ${fileName}`);
+  const [customNote, setCustomNote] = useState("");
+  const [sendSuccessMessage, setSendSuccessMessage] = useState<string | null>(null);
+
+  const openDirectSendModal = () => {
+    setEmailSubject(`[Document Numérisé] ${fileName}`);
+    setIsDirectSendOpen(true);
+    setSendSuccessMessage(null);
+  };
+
+  const handleDirectEmailSend = (e: React.FormEvent) => {
+    e.preventDefault();
+    const fullBody = `${customNote ? customNote + "\n\n-------------------------\n\n" : ""}TEXTE DU DOCUMENT NUMÉRISÉ (${new Date().toLocaleDateString()}) :\n\n${editableText}\n\n---\nNumérisé et transmis via AbookScan AI`;
+    
+    const mailtoUrl = `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(fullBody)}`;
+    window.location.href = mailtoUrl;
+
+    setSendSuccessMessage("Client e-mail ouvert avec le document numérisé prêt à l'envoi !");
+    confetti({
+      particleCount: 80,
+      spread: 70,
+      origin: { y: 0.6 }
+    });
+  };
+
+  const handleWhatsAppSend = () => {
+    const message = `*${emailSubject}*\n\n${editableText}`;
+    const waUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, "_blank");
+
+    setSendSuccessMessage("Document prêt pour envoi instantané sur WhatsApp !");
+    confetti({ particleCount: 60 });
+  };
+
+  const handlePrintDirect = () => {
+    const printWindow = window.open("", "_blank");
+    if (printWindow) {
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>${fileName}</title>
+            <style>
+              body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #111; line-height: 1.6; }
+              h1 { border-bottom: 2px solid #0d9488; padding-bottom: 8px; font-size: 20px; }
+              .meta { font-size: 12px; color: #666; margin-bottom: 24px; }
+              .content { white-space: pre-wrap; font-size: 14px; }
+              .footer { margin-top: 40px; border-top: 1px solid #ddd; padding-top: 10px; font-size: 10px; color: #888; }
+            </style>
+          </head>
+          <body>
+            <h1>${fileName}</h1>
+            <div class="meta">Document numérisé le ${new Date().toLocaleString()} - AbookScan AI</div>
+            <div class="content">${editableText.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+            <div class="footer">Numérisation et transcription haute définition AbookScan</div>
+            <script>
+              window.onload = function() { window.print(); }
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+  };
 
   const handleAIFormatting = async (style: string) => {
     if (isFormatting) return;
@@ -109,6 +178,22 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
     setIsSaveModalOpen(true);
   };
 
+  const handleDownloadRawScanImages = () => {
+    if (!images || images.length === 0) {
+      alert("Aucune image de numérisation d'origine disponible.");
+      return;
+    }
+    images.forEach((imgBase64, idx) => {
+      const link = document.createElement("a");
+      link.href = imgBase64;
+      link.download = `${fileName}_page_${idx + 1}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+    confetti({ particleCount: 50 });
+  };
+
   const executeExport = async () => {
     setIsSaveModalOpen(false);
     
@@ -126,8 +211,31 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
       saveAs(blob, `${fileName}.docx`);
     } else if (pendingFormat === "pdf") {
       const doc = new jsPDF();
-      const splitText = doc.splitTextToSize(editableText, 180);
-      doc.text(splitText, 15, 20);
+      if (images && images.length > 0) {
+        images.forEach((imgBase64, index) => {
+          if (index > 0) doc.addPage();
+          try {
+            doc.addImage(imgBase64, "JPEG", 10, 10, 190, 240);
+            doc.setFontSize(8);
+            doc.setTextColor(100);
+            doc.text(`AbookScan - Document Numérisé Original - Page ${index + 1}`, 10, 255);
+          } catch (err) {
+            console.error("Error embedding scan image in PDF:", err);
+          }
+        });
+        // Add exact raw transcript page at the end
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.setTextColor(20, 184, 166);
+        doc.text("Transcription Brute Exacte", 15, 15);
+        doc.setFontSize(10);
+        doc.setTextColor(30);
+        const splitText = doc.splitTextToSize(editableText, 180);
+        doc.text(splitText, 15, 25);
+      } else {
+        const splitText = doc.splitTextToSize(editableText, 180);
+        doc.text(splitText, 15, 20);
+      }
       doc.save(`${fileName}.pdf`);
     } else if (pendingFormat === "excel") {
       const ws = XLSX.utils.aoa_to_sheet(result.tableData!);
@@ -184,7 +292,7 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
                 <input 
                   type="text"
                   value={fileName}
-                  onChange={(e) => setFileName(e.target.value)}
+                  onChange={(e) => setFileName(e.value ? e.value : e.target.value)}
                   className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-white text-center focus:outline-none focus:border-teal-500/50"
                   autoFocus
                   onKeyDown={(e) => e.key === 'Enter' && executeExport()}
@@ -192,6 +300,130 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
                 <div className="flex gap-3 pt-4">
                   <button onClick={() => setIsSaveModalOpen(false)} className="flex-1 py-3 bg-white/5 rounded-xl text-xs uppercase font-bold text-slate-400">Annuler</button>
                   <button onClick={executeExport} className="flex-1 py-3 bg-teal-500 text-black rounded-xl text-xs uppercase font-bold">Confirmer</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Direct Send Modal (Numérisation pour Envoi Direct) */}
+      <AnimatePresence>
+        {isDirectSendOpen && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/70 backdrop-blur-md" 
+              onClick={() => setIsDirectSendOpen(false)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-lg bg-zinc-900 border border-teal-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto no-scrollbar"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-teal-500/20 text-teal-400 rounded-2xl border border-teal-500/30">
+                    <Send className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                      Envoi Direct du Document
+                    </h3>
+                    <p className="text-xs text-slate-400">Transmettez votre numérisation en 1 clic sans intermédiaire</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsDirectSendOpen(false)}
+                  className="p-2 hover:bg-white/10 text-slate-400 hover:text-white rounded-full transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {sendSuccessMessage && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-3 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{sendSuccessMessage}</span>
+                </motion.div>
+              )}
+
+              {/* Form Email Direct Send */}
+              <form onSubmit={handleDirectEmailSend} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-teal-400" />
+                    <span>E-mail du destinataire</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="exemple@entreprise.com ou destinataire@domaine.fr"
+                    value={recipientEmail}
+                    onChange={(e) => setRecipientEmail(e.target.value)}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Objet du message</label>
+                  <input
+                    type="text"
+                    required
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Note ou message d'accompagnement (facultatif)</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Ex: Veuillez trouver ci-joint le compte-rendu de la réunion numérisé ce jour..."
+                    value={customNote}
+                    onChange={(e) => setCustomNote(e.target.value)}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:outline-none focus:border-teal-500 resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-black font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2 transition-all"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>Envoyer par E-mail Direct</span>
+                </button>
+              </form>
+
+              {/* Alternative Instant Dispatch Channels */}
+              <div className="pt-2 border-t border-white/10 space-y-3">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 block">Autres Canaux d'Envoi Direct :</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={handleWhatsAppSend}
+                    className="p-3 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all"
+                  >
+                    <MessageSquare className="w-4 h-4 text-emerald-400" />
+                    <span>WhatsApp Direct</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePrintDirect}
+                    className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all"
+                  >
+                    <Printer className="w-4 h-4 text-indigo-400" />
+                    <span>Impression Directe</span>
+                  </button>
                 </div>
               </div>
             </motion.div>
@@ -322,6 +554,12 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
             {isCopied ? "Copié" : "Copier"}
           </button>
           <button 
+            onClick={openDirectSendModal}
+            className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-teal-500 to-emerald-500 text-black font-bold rounded-full text-[10px] uppercase tracking-widest hover:scale-105 shadow-lg shadow-teal-500/20 transition-all"
+          >
+            <Send className="w-4 h-4" /> Envoi Direct
+          </button>
+          <button 
             onClick={shareNative} 
             className="flex items-center gap-2 px-6 py-2.5 bg-teal-500/10 border border-teal-500/20 text-teal-400 rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-teal-500 hover:text-black transition-all"
           >
@@ -417,31 +655,53 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
             )}
           </div>
 
-          <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 transition-all duration-300 ${isEditing ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
+          <div className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 transition-all duration-300 ${isEditing ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
             <button 
-              onClick={() => handleExportInitiation("word")}
-              className="flex items-center justify-center gap-3 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all group"
+              onClick={openDirectSendModal}
+              className="flex items-center justify-center gap-2 py-4 bg-teal-500/15 border border-teal-500/30 rounded-2xl hover:bg-teal-500 hover:text-black transition-all group text-teal-400 hover:text-black"
             >
-              <FileText className="w-5 h-5 text-blue-400" />
-              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 group-hover:text-white">DOCX</span>
+              <Send className="w-4 h-4 text-teal-400 group-hover:text-black" />
+              <span className="text-[10px] uppercase font-bold tracking-widest">Envoi Direct</span>
             </button>
+
+            {images && images.length > 0 && (
+              <button 
+                onClick={handleDownloadRawScanImages}
+                className="flex items-center justify-center gap-2 py-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl hover:bg-emerald-500/20 transition-all group text-emerald-400"
+                title="Télécharger les numérisations HD d'origine sans modification"
+              >
+                <Download className="w-4 h-4 text-emerald-400" />
+                <span className="text-[10px] uppercase font-bold tracking-widest">Images HD</span>
+              </button>
+            )}
+
             <button 
               onClick={() => handleExportInitiation("pdf")}
-              className="flex items-center justify-center gap-3 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all group"
+              className="flex items-center justify-center gap-2 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all group"
+              title="Générer le PDF numérisé direct"
             >
-              <Download className="w-5 h-5 text-red-400" />
-              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 group-hover:text-white">PDF</span>
+              <FileText className="w-4 h-4 text-red-400" />
+              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-300 group-hover:text-white">PDF Scan</span>
             </button>
+
+            <button 
+              onClick={() => handleExportInitiation("word")}
+              className="flex items-center justify-center gap-2 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all group"
+            >
+              <FileText className="w-4 h-4 text-blue-400" />
+              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 group-hover:text-white">DOCX</span>
+            </button>
+
             <button 
               onClick={() => handleExportInitiation("excel")}
               disabled={!result.tableData}
-              className={`flex items-center justify-center gap-3 py-4 border rounded-2xl transition-all group ${
+              className={`flex items-center justify-center gap-2 py-4 border rounded-2xl transition-all group ${
                 result.tableData 
                 ? "bg-teal-500/5 border-teal-500/20 hover:bg-teal-500/10" 
                 : "bg-white/2 border-white/5 opacity-50 cursor-not-allowed"
               }`}
             >
-              <TableIcon className={`w-5 h-5 ${result.tableData ? "text-teal-400" : "text-slate-600"}`} />
+              <TableIcon className={`w-4 h-4 ${result.tableData ? "text-teal-400" : "text-slate-600"}`} />
               <span className={`text-[10px] uppercase font-bold tracking-widest ${result.tableData ? "text-teal-400" : "text-slate-600"}`}>EXCEL</span>
             </button>
           </div>

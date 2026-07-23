@@ -1,8 +1,9 @@
 import React, { useCallback, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Camera, Upload, X, Zap, Smartphone } from "lucide-react";
+import { Camera, Upload, X, Zap, Smartphone, Crop, Check, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { compressImagesInParallel } from "../lib/imageCompressor";
+import { autoCropAndTrimPaper, autoCropBatch } from "../lib/documentCropper";
 
 interface ScannerProps {
   onImagesCaptured: (base64Array: string[]) => void;
@@ -15,6 +16,8 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
   const [capturedPages, setCapturedPages] = useState<string[]>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isCropping, setIsCropping] = useState(false);
+  const [autoCropEnabled, setAutoCropEnabled] = useState(true);
   const [isFlashOn, setIsFlashOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -131,6 +134,7 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
   const handleNativeCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
+      setIsCropping(true);
       const readers = Array.from(files).map((file: any) => {
         return new Promise<string>((resolve) => {
           const reader = new FileReader();
@@ -139,10 +143,11 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
         });
       });
 
-      Promise.all(readers).then(images => {
-        compressImagesInParallel(images).then(compressedImages => {
-          onImagesCaptured(compressedImages);
-        });
+      Promise.all(readers).then(async (images) => {
+        const cropped = autoCropEnabled ? await autoCropBatch(images) : images;
+        const compressedImages = await compressImagesInParallel(cropped);
+        setIsCropping(false);
+        onImagesCaptured(compressedImages);
       });
     }
   };
@@ -155,13 +160,13 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
     setShowCamera(false);
   };
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     if (videoRef.current && canvasRef.current) {
       setIsCapturing(true);
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
-      const MAX_WIDTH = 1000; // Optimized to 1000 for ultra-fast uploads & optimal Gemini 3.5 Flash transcription
+      const MAX_WIDTH = 1200;
       let width = video.videoWidth;
       let height = video.videoHeight;
       
@@ -175,8 +180,14 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(video, 0, 0, width, height);
       
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.65);
-      setCapturedPages(prev => [...prev, dataUrl]);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+      if (autoCropEnabled) {
+        const cropRes = await autoCropAndTrimPaper(dataUrl, { padding: 12, enhanceContrast: true });
+        setCapturedPages(prev => [...prev, cropRes.croppedDataUrl]);
+      } else {
+        setCapturedPages(prev => [...prev, dataUrl]);
+      }
       
       setTimeout(() => setIsCapturing(false), 200);
     }
@@ -195,6 +206,7 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
   };
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
+    setIsCropping(true);
     const readers = acceptedFiles.map(file => {
       return new Promise<string>((resolve) => {
         const reader = new FileReader();
@@ -203,12 +215,13 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
       });
     });
 
-    Promise.all(readers).then(images => {
-      compressImagesInParallel(images).then(compressed => {
-        onImagesCaptured(compressed);
-      });
+    Promise.all(readers).then(async (images) => {
+      const cropped = autoCropEnabled ? await autoCropBatch(images) : images;
+      const compressed = await compressImagesInParallel(cropped);
+      setIsCropping(false);
+      onImagesCaptured(compressed);
     });
-  }, [onImagesCaptured]);
+  }, [onImagesCaptured, autoCropEnabled]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (acceptedFiles: File[]) => onDrop(acceptedFiles),
@@ -239,6 +252,50 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
           Numérisation <span className="text-teal-500 italic">IA</span>
         </motion.p>
       </div>
+
+      {/* Auto Paper Detection & Crop Control Bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl bg-zinc-900/80 border border-teal-500/20 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-teal-500/10 text-teal-400 rounded-xl border border-teal-500/30">
+            <Crop className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-white tracking-tight flex items-center gap-2">
+              Recadrage & Rognage Papier Automatique
+              <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 text-[9px] uppercase font-mono border border-teal-500/30">
+                IA Edge Vision
+              </span>
+            </h4>
+            <p className="text-[11px] text-slate-400">
+              Isole automatiquement le papier et rogne la table et les bords inutiles.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setAutoCropEnabled(!autoCropEnabled)}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            autoCropEnabled
+              ? "bg-teal-500 text-black shadow-lg shadow-teal-500/20"
+              : "bg-zinc-800 text-slate-400 border border-white/10"
+          }`}
+        >
+          <Crop className="w-4 h-4" />
+          <span>{autoCropEnabled ? "Rognage Auto Activé" : "Rognage Désactivé"}</span>
+        </button>
+      </div>
+
+      {isCropping && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-3 bg-teal-500/20 border border-teal-500/40 text-teal-200 text-xs rounded-xl flex items-center justify-center gap-2 font-mono uppercase tracking-wider"
+        >
+          <Sparkles className="w-4 h-4 text-teal-400 animate-spin" />
+          <span>Détection des contours et rognage du papier en cours...</span>
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Direct live camera feed */}

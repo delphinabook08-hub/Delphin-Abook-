@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Stripe from "stripe";
 import dotenv from "dotenv";
-import { transcribeHandwriting, formatTranscriptionText } from "./src/lib/gemini";
+import { transcribeHandwriting, formatTranscriptionText, transcribeAudio } from "./src/lib/gemini";
 
 dotenv.config();
 
@@ -25,18 +25,35 @@ async function startServer() {
 
   // API Route for Handwrited Script OCR Transcription via Gemini
   app.post("/api/transcribe", async (req, res) => {
-    const { base64Images, mimeType, language } = req.body;
+    const { base64Images, mimeType, language, rawScan } = req.body;
     
     if (!base64Images || (Array.isArray(base64Images) && base64Images.length === 0)) {
       return res.status(400).json({ error: "Aucune image n'a été fournie pour la transcription." });
     }
 
     try {
-      const result = await transcribeHandwriting(base64Images, mimeType || "image/jpeg", language || "French");
+      const result = await transcribeHandwriting(base64Images, mimeType || "image/jpeg", language || "French", !!rawScan);
       res.json(result);
     } catch (err: any) {
       console.error("Gemini Transcription Route Error:", err);
       res.status(500).json({ error: err.message || "Échec de l'analyse OCR par l'IA. Veuillez réessayer." });
+    }
+  });
+
+  // API Route for High-Quality Audio / Voice Transcription via Gemini 3.6 Flash
+  app.post("/api/transcribe-audio", async (req, res) => {
+    const { audioBase64, mimeType, language, promptMode } = req.body;
+    
+    if (!audioBase64) {
+      return res.status(400).json({ error: "Aucun enregistrement audio n'a été fourni." });
+    }
+
+    try {
+      const result = await transcribeAudio(audioBase64, mimeType || "audio/webm", language || "French", promptMode || "formatted");
+      res.json(result);
+    } catch (err: any) {
+      console.error("Gemini Audio Transcription Route Error:", err);
+      res.status(500).json({ error: err.message || "Échec de la transcription vocale. Veuillez réessayer." });
     }
   });
 
