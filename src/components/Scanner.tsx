@@ -1,28 +1,40 @@
 import React, { useCallback, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Camera, Upload, X, Zap, Smartphone, Crop, Check, Sparkles } from "lucide-react";
+import { Camera, Upload, X, Zap, Smartphone, Crop, Check, Sparkles, Grid, SlidersHorizontal, Sliders } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { compressImagesInParallel } from "../lib/imageCompressor";
-import { autoCropAndTrimPaper, autoCropBatch } from "../lib/documentCropper";
+import { autoCropAndTrimPaper, autoCropBatch, ScanFilterMode } from "../lib/documentCropper";
+import { processUploadedDocumentFiles } from "../lib/pdfConverter";
+import DocumentEditorModal from "./DocumentEditorModal";
 
 interface ScannerProps {
   onImagesCaptured: (base64Array: string[]) => void;
   onTextCaptured?: (text: string) => void;
   selectedLanguage: string;
+  activeTab?: "ocr" | "voice";
+  onDirectFileUpload?: (files: File[]) => void;
 }
 
-export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerProps) {
+export default function Scanner({ onImagesCaptured, onTextCaptured, activeTab, onDirectFileUpload }: ScannerProps) {
   const [showCamera, setShowCamera] = useState(false);
   const [capturedPages, setCapturedPages] = useState<string[]>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCropping, setIsCropping] = useState(false);
   const [autoCropEnabled, setAutoCropEnabled] = useState(true);
+  const [scanFilterMode, setScanFilterMode] = useState<ScanFilterMode>("magic");
+  const [showGridOverlay, setShowGridOverlay] = useState(true);
   const [isFlashOn, setIsFlashOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
+  
+  // CamScanner Editor Modal state
+  const [showEditorModal, setShowEditorModal] = useState(false);
+  const [pagesToEdit, setPagesToEdit] = useState<string[]>([]);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const nativeInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const toggleFlash = async () => {
     if (videoRef.current?.srcObject) {
@@ -128,28 +140,62 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
   };
 
   const triggerNativeCapture = () => {
-    nativeInputRef.current?.click();
+    cameraInputRef.current?.click();
+  };
+
+  const triggerGalleryPicker = () => {
+    galleryInputRef.current?.click();
+  };
+
+  const processAndSubmitFiles = async (files: File[]) => {
+    setCameraError(null);
+
+    // Check if any file is an audio file
+    const hasAudio = files.some(f => {
+      const nameLower = f.name.toLowerCase();
+      return f.type.startsWith("audio/") || /\.(mp3|wav|m4a|aac|ogg|webm|flac|amr|wma|mp4)$/i.test(nameLower);
+    });
+
+    if (hasAudio && onDirectFileUpload) {
+      onDirectFileUpload(files);
+      return;
+    }
+
+    setIsCropping(true);
+    try {
+      const rawImageUrls = await processUploadedDocumentFiles(files);
+      if (rawImageUrls.length === 0) {
+        setCameraError("Aucune image ni page PDF valide n'a pu être extraite. Veuillez vérifier vos fichiers.");
+        setIsCropping(false);
+        return;
+      }
+
+      let processed = rawImageUrls;
+      if (autoCropEnabled && scanFilterMode !== "original") {
+        try {
+          processed = await autoCropBatch(rawImageUrls, { filterMode: scanFilterMode });
+        } catch (e) {
+          console.warn("AutoCrop batch skipped, using raw images:", e);
+        }
+      }
+
+      setIsCropping(false);
+      const allPages = [...capturedPages, ...processed];
+      setCapturedPages(allPages);
+    } catch (err: any) {
+      console.error("Error processing document files:", err);
+      setCameraError("Erreur lors du traitement des fichiers : " + (err.message || "Fichier invalide"));
+      setIsCropping(false);
+    }
   };
 
   const handleNativeCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      setIsCropping(true);
-      const readers = Array.from(files).map((file: any) => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.readAsDataURL(file);
-        });
-      });
-
-      Promise.all(readers).then(async (images) => {
-        const cropped = autoCropEnabled ? await autoCropBatch(images) : images;
-        const compressedImages = await compressImagesInParallel(cropped);
-        setIsCropping(false);
-        onImagesCaptured(compressedImages);
-      });
+      processAndSubmitFiles(Array.from(files));
     }
+    // Reset value so uploading the same file again triggers onChange
+    e.target.value = "";
   };
 
   const stopCamera = () => {
@@ -183,7 +229,7 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
       const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
 
       if (autoCropEnabled) {
-        const cropRes = await autoCropAndTrimPaper(dataUrl, { padding: 12, enhanceContrast: true });
+        const cropRes = await autoCropAndTrimPaper(dataUrl, { padding: 12, filterMode: scanFilterMode });
         setCapturedPages(prev => [...prev, cropRes.croppedDataUrl]);
       } else {
         setCapturedPages(prev => [...prev, dataUrl]);
@@ -205,27 +251,18 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
     }
   };
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    setIsCropping(true);
-    const readers = acceptedFiles.map(file => {
-      return new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-    });
+  const onDrop = useCallback((acceptedFiles: File[], fileRejections: any[]) => {
+    const rejectedFiles = (fileRejections || []).map(r => r.file).filter(Boolean);
+    const filesToProcess = [...acceptedFiles, ...rejectedFiles];
 
-    Promise.all(readers).then(async (images) => {
-      const cropped = autoCropEnabled ? await autoCropBatch(images) : images;
-      const compressed = await compressImagesInParallel(cropped);
-      setIsCropping(false);
-      onImagesCaptured(compressed);
-    });
-  }, [onImagesCaptured, autoCropEnabled]);
+    if (filesToProcess.length > 0) {
+      processAndSubmitFiles(filesToProcess);
+    }
+  }, [autoCropEnabled, onImagesCaptured]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: (acceptedFiles: File[]) => onDrop(acceptedFiles),
-    accept: { "image/*": [".jpeg", ".jpg", ".png", ".webp"] },
+    onDrop: (acceptedFiles: File[], fileRejections: any[]) => onDrop(acceptedFiles, fileRejections),
+    noClick: true, // Prevents dropzone from attaching conflicting internal click handlers
     multiple: true,
   } as any);
 
@@ -253,38 +290,122 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
         </motion.p>
       </div>
 
-      {/* Auto Paper Detection & Crop Control Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl bg-zinc-900/80 border border-teal-500/20 backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-teal-500/10 text-teal-400 rounded-xl border border-teal-500/30">
-            <Crop className="w-5 h-5" />
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-white tracking-tight flex items-center gap-2">
-              Recadrage & Rognage Papier Automatique
-              <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 text-[9px] uppercase font-mono border border-teal-500/30">
-                IA Edge Vision
-              </span>
-            </h4>
-            <p className="text-[11px] text-slate-400">
-              Isole automatiquement le papier et rogne la table et les bords inutiles.
-            </p>
-          </div>
-        </div>
 
-        <button
-          type="button"
-          onClick={() => setAutoCropEnabled(!autoCropEnabled)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-            autoCropEnabled
-              ? "bg-teal-500 text-black shadow-lg shadow-teal-500/20"
-              : "bg-zinc-800 text-slate-400 border border-white/10"
-          }`}
+
+      {capturedPages.length > 0 && !showCamera && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="p-5 rounded-3xl bg-zinc-900/90 border border-teal-500/40 backdrop-blur-xl space-y-4 shadow-2xl ring-1 ring-teal-500/20"
         >
-          <Crop className="w-4 h-4" />
-          <span>{autoCropEnabled ? "Rognage Auto Activé" : "Rognage Désactivé"}</span>
-        </button>
-      </div>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-3 h-3 rounded-full bg-teal-400 animate-pulse" />
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  Dossier de numérisation ({capturedPages.length} page{capturedPages.length > 1 ? "s" : ""})
+                  <span className="text-[9px] font-mono font-normal text-teal-300 px-2 py-0.5 rounded-full bg-teal-500/20 border border-teal-500/30">
+                    1 seul document final
+                  </span>
+                </h3>
+                <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                  Toutes les pages scannées seront compilées dans un même fichier Word, PDF et Excel.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={triggerNativeCapture}
+                className="px-3 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/30 text-teal-300 border border-teal-500/30 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md"
+                title="Scanner un autre papier avec l'appareil photo"
+              >
+                <Camera className="w-3.5 h-3.5 text-teal-400" />
+                <span>+ Photo Papier</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={triggerGalleryPicker}
+                className="px-3 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/30 text-teal-300 border border-teal-500/30 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md"
+                title="Ajouter un autre document ou image depuis la galerie"
+              >
+                <Upload className="w-3.5 h-3.5 text-teal-400" />
+                <span>+ Galerie / Fichier</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPagesToEdit(capturedPages);
+                  setShowEditorModal(true);
+                }}
+                className="px-3 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 text-xs font-bold flex items-center gap-1.5 transition-all"
+              >
+                <Crop className="w-3.5 h-3.5 text-teal-400" />
+                <span>✂️ Recadrer</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCapturedPages([])}
+                className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs transition-all"
+                title="Effacer tout le dossier"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+            {capturedPages.map((page, idx) => (
+              <div key={idx} className="relative group aspect-[3/4] rounded-2xl overflow-hidden border border-teal-500/20 bg-black shadow-lg">
+                <img src={page} alt={`Page ${idx + 1}`} className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPagesToEdit([page]);
+                      setShowEditorModal(true);
+                    }}
+                    className="p-2 rounded-xl bg-teal-500 text-black shadow-lg"
+                    title="Ajuster les 4 coins de cette page"
+                  >
+                    <Crop className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removePage(idx)}
+                    className="p-2 rounded-xl bg-red-500 text-white shadow-lg"
+                    title="Supprimer la page du dossier"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="absolute bottom-1 left-1 bg-black/80 text-teal-400 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border border-white/10">
+                  P.{idx + 1}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-white/5">
+            <span className="text-[10px] text-slate-400 font-mono">
+              💡 Cliquez sur "+ Photo Papier" pour ajouter une page supplémentaire à ce dossier.
+            </span>
+
+            <button
+              type="button"
+              onClick={() => onImagesCaptured(capturedPages)}
+              className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-black font-bold text-xs uppercase tracking-widest transition-all shadow-xl shadow-teal-500/20 flex items-center justify-center gap-2 scale-105"
+            >
+              <Sparkles className="w-4 h-4 text-black" />
+              <span>Numériser tout le dossier ({capturedPages.length} page{capturedPages.length > 1 ? "s" : ""})</span>
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {isCropping && (
         <motion.div
@@ -348,25 +469,33 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
 
         {/* Gallery / File selection */}
         <div
-          {...getRootProps()}
-          className={`relative group cursor-pointer rounded-xl border transition-all p-6 flex flex-col items-center justify-center gap-3 glass-card overflow-hidden tech-grid h-full ${
-            isDragActive ? "border-teal-500 ring-4 ring-teal-500/10 bg-teal-950/20" : "border-white/5 hover:border-white/20"
-          }`}
+          onClick={triggerGalleryPicker}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              processAndSubmitFiles(Array.from(e.dataTransfer.files));
+            }
+          }}
+          className="relative group cursor-pointer rounded-xl border border-white/5 hover:border-teal-500/50 hover:bg-teal-950/20 transition-all p-6 flex flex-col items-center justify-center gap-3 glass-card overflow-hidden tech-grid h-full"
         >
-          <div className="absolute top-2 left-2 w-3 h-3 border-t-2 border-l-2 border-white/10 group-hover:border-white/30 transition-colors" />
-          <div className="absolute top-2 right-2 w-3 h-3 border-t-2 border-r-2 border-white/10 group-hover:border-white/30 transition-colors" />
-          <div className="absolute bottom-2 left-2 w-3 h-3 border-b-2 border-l-2 border-white/10 group-hover:border-white/30 transition-colors" />
-          <div className="absolute bottom-2 right-2 w-3 h-3 border-b-2 border-r-2 border-white/10 group-hover:border-white/30 transition-colors" />
+          <div className="absolute top-2 left-2 w-3 h-3 border-t-2 border-l-2 border-white/10 group-hover:border-teal-500/50 transition-colors" />
+          <div className="absolute top-2 right-2 w-3 h-3 border-t-2 border-r-2 border-white/10 group-hover:border-teal-500/50 transition-colors" />
+          <div className="absolute bottom-2 left-2 w-3 h-3 border-b-2 border-l-2 border-white/10 group-hover:border-teal-500/50 transition-colors" />
+          <div className="absolute bottom-2 right-2 w-3 h-3 border-b-2 border-r-2 border-white/10 group-hover:border-teal-500/50 transition-colors" />
 
-          <div className="absolute inset-0 bg-white/[0.02] opacity-0 group-hover:opacity-100 transition-opacity" />
-          <input {...getInputProps()} />
-          <div className="p-3 rounded-lg bg-zinc-950/80 border border-white/5 group-hover:border-white/20 text-slate-500 group-hover:text-white transition-all shadow-2xl relative z-10">
+          <div className="absolute inset-0 bg-teal-500/[0.02] opacity-0 group-hover:opacity-100 transition-opacity" />
+          <div className="p-3 rounded-lg bg-zinc-950/80 border border-white/5 group-hover:border-teal-500/40 text-slate-500 group-hover:text-teal-400 transition-all shadow-2xl relative z-10">
             <Upload className="w-6 h-6" />
           </div>
           <div className="text-center relative z-10 space-y-1">
             <span className="block font-display text-lg text-white tracking-tight">Importation</span>
-            <span className="inline-block px-2 py-0.5 rounded-full bg-white/5 text-[7px] text-slate-500 font-mono uppercase tracking-[0.2em] border border-white/10">
-              Galerie & Fichiers
+            <span className="inline-block px-2 py-0.5 rounded-full bg-white/5 text-[7px] text-slate-400 font-mono uppercase tracking-[0.2em] border border-white/10 group-hover:text-teal-300 group-hover:border-teal-500/30">
+              Galerie & Fichiers (PDF, Photos, Audio)
             </span>
           </div>
         </div>
@@ -404,12 +533,15 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
                 ref={videoRef}
                 autoPlay
                 playsInline
+                muted
+                // @ts-ignore
+                webkit-playsinline="true"
                 className={`w-full aspect-[3/4] object-cover brightness-110 transition-all duration-300 ${
                   isCapturing ? "brightness-150 scale-[1.02]" : ""
                 }`}
               />
               
-              {/* Technical Overlay */}
+              {/* Technical Overlay & Grid */}
               <div className="absolute inset-0 pointer-events-none p-8 flex flex-col justify-between">
                 <div className="absolute inset-8 border border-white/10 rounded-2xl">
                   <div className="absolute -top-1 -left-1 w-6 h-6 border-t-2 border-l-2 border-teal-500 rounded-tl-lg" />
@@ -417,6 +549,25 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
                   <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-2 border-l-2 border-teal-500 rounded-bl-lg" />
                   <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-2 border-r-2 border-teal-500 rounded-br-lg" />
                 </div>
+
+                {/* Optional Grid alignment lines */}
+                {showGridOverlay && (
+                  <div className="absolute inset-8 grid grid-cols-3 grid-rows-3 pointer-events-none">
+                    <div className="border-r border-b border-teal-500/20" />
+                    <div className="border-r border-b border-teal-500/20" />
+                    <div className="border-b border-teal-500/20" />
+                    <div className="border-r border-b border-teal-500/20" />
+                    <div className="border-r border-b border-teal-500/20 flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-full border border-teal-500/40 flex items-center justify-center">
+                        <div className="w-2 h-2 bg-teal-400 rounded-full animate-ping" />
+                      </div>
+                    </div>
+                    <div className="border-b border-teal-500/20" />
+                    <div className="border-r border-teal-500/20" />
+                    <div className="border-r border-teal-500/20" />
+                    <div />
+                  </div>
+                )}
                 
                 <div className="flex justify-between items-start">
                   <div className="w-8 h-8 border-t-2 border-l-2 border-teal-500/50" />
@@ -424,7 +575,7 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
                 </div>
                 <div className="flex flex-col items-center gap-2">
                    <div className="w-48 h-[1px] bg-gradient-to-r from-transparent via-teal-500 to-transparent animate-pulse" />
-                   <span className="text-[10px] font-mono text-teal-500 uppercase tracking-widest">Alignement Actif</span>
+                   <span className="text-[10px] font-mono text-teal-500 uppercase tracking-widest">Alignement Viseur CamScanner</span>
                 </div>
                 <div className="flex justify-between items-end">
                   <div className="w-8 h-8 border-b-2 border-l-2 border-teal-500/50" />
@@ -443,8 +594,20 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
                   <X className="w-6 h-6" />
                 </button>
 
-                <div className="bg-teal-500 text-black px-6 py-2 rounded-full font-bold text-[12px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(20,184,166,0.4)]">
-                   Document • Page {capturedPages.length + 1}
+                <div className="flex items-center gap-2">
+                  <div className="bg-teal-500 text-black px-5 py-2 rounded-full font-bold text-[12px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(20,184,166,0.4)]">
+                     Document • Page {capturedPages.length + 1}
+                  </div>
+
+                  <button
+                    onClick={() => setShowGridOverlay(!showGridOverlay)}
+                    className={`p-2.5 rounded-full backdrop-blur-md border border-white/10 transition-colors ${
+                      showGridOverlay ? "bg-teal-500/30 text-teal-300" : "bg-black/40 text-slate-400"
+                    }`}
+                    title="Activer/Désactiver la grille de cadrage"
+                  >
+                    <Grid className="w-5 h-5" />
+                  </button>
                 </div>
 
                 {hasTorch ? (
@@ -457,11 +620,11 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
                     <Zap className={`w-6 h-6 ${isFlashOn ? "fill-current" : ""}`} />
                   </button>
                 ) : (
-                  <div className="w-14" /> // Spacer to maintain alignment
+                  <div className="w-14" />
                 )}
               </div>
               
-              <div className="absolute top-24 left-0 right-0 px-4 flex gap-2 overflow-x-auto no-scrollbar py-2">
+              <div className="absolute top-24 left-0 right-0 px-4 flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
                  {capturedPages.map((page, idx) => (
                    <motion.div 
                      key={idx}
@@ -481,6 +644,19 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
                      </div>
                    </motion.div>
                  ))}
+
+                 {capturedPages.length > 0 && (
+                   <button
+                     onClick={() => {
+                       setPagesToEdit(capturedPages);
+                       setShowEditorModal(true);
+                     }}
+                     className="flex-shrink-0 px-3 py-2 rounded-xl bg-teal-500/20 border border-teal-500/40 text-teal-300 text-xs font-bold flex items-center gap-1.5 hover:bg-teal-500/30 transition-all"
+                   >
+                     <SlidersHorizontal className="w-4 h-4 text-teal-400" />
+                     <span>Éditer 4-Corners & Filtres</span>
+                   </button>
+                 )}
               </div>
               
               <div className="absolute bottom-12 left-0 right-0 flex items-center justify-center gap-10">
@@ -495,7 +671,7 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
                   disabled={capturedPages.length === 0}
                   className="px-8 py-5 rounded-3xl bg-white text-black font-bold text-[10px] uppercase tracking-[0.2em] hover:bg-slate-200 transition-all disabled:opacity-20 disabled:grayscale shadow-2xl"
                 >
-                  Analyser {capturedPages.length > 0 && `(${capturedPages.length})`}
+                  Lancer OCR IA & Word {capturedPages.length > 0 && `(${capturedPages.length})`}
                 </button>
               </div>
             </div>
@@ -504,13 +680,36 @@ export default function Scanner({ onImagesCaptured, onTextCaptured }: ScannerPro
       </AnimatePresence>
 
       <canvas ref={canvasRef} className="hidden" />
+      
+      {/* Native Camera Input (Forces environment camera on mobile) */}
       <input 
         type="file" 
         accept="image/*" 
         capture="environment" 
-        ref={nativeInputRef} 
+        ref={cameraInputRef} 
         onChange={handleNativeCapture} 
         className="hidden" 
+      />
+
+      {/* Gallery & Multi-Document Input (Images, PDFs, Word, Text, Audio) */}
+      <input 
+        type="file" 
+        accept="image/*,audio/*,video/*,.pdf,application/pdf,.doc,.docx,.txt,.csv,.rtf,.heic,.heif,.mp3,.wav,.m4a,.aac,.ogg,.webm,.flac,.amr,.wma,.mp4" 
+        multiple
+        ref={galleryInputRef} 
+        onChange={handleNativeCapture} 
+        className="hidden" 
+      />
+
+      {/* Document Crop & Filter Editor Modal */}
+      <DocumentEditorModal
+        isOpen={showEditorModal}
+        pages={pagesToEdit}
+        onClose={() => setShowEditorModal(false)}
+        onSave={(processedPages) => {
+          setCapturedPages(processedPages);
+          setShowEditorModal(false);
+        }}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-10 border-t border-white/5">

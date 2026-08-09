@@ -277,34 +277,48 @@ export default function QRCodeModal({
 
                   {installPlatform === "ios" && (
                     <div className="space-y-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-amber-500" />
-                        <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400">Sur Apple Safari</span>
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                          <span className="text-[10px] uppercase font-bold tracking-widest text-amber-300">Guide iOS iPhone / iPad (Safari)</span>
+                        </div>
+                        <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          PWA Native Apple
+                        </span>
                       </div>
                       
                       <div className="space-y-3">
-                        <div className="flex gap-3 items-start">
-                          <div className="w-5 h-5 bg-white/5 rounded-full flex items-center justify-center text-[10px] text-teal-400 font-mono shrink-0 mt-0.5">1</div>
-                          <p className="text-xs text-slate-300 leading-relaxed font-light">
-                            Ouvrez le lien obligatoirement dans le navigateur <strong className="text-white">Safari</strong> de votre iPhone.
+                        <div className="flex gap-3 items-start bg-slate-900/60 p-2.5 rounded-xl border border-white/5">
+                          <div className="w-6 h-6 bg-amber-500/20 text-amber-400 rounded-lg flex items-center justify-center text-xs font-bold font-mono shrink-0">1</div>
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            Ouvrez cette application dans le navigateur <strong className="text-white">Safari</strong> de votre iPhone.
                           </p>
                         </div>
-                        <div className="flex gap-3 items-start">
-                          <div className="w-5 h-5 bg-white/5 rounded-full flex items-center justify-center text-[10px] text-teal-400 font-mono shrink-0 mt-0.5">2</div>
-                          <p className="text-xs text-slate-300 leading-relaxed font-light">
-                            Appuyez sur l'icône de <strong className="text-white">Partage</strong> (le rectangle avec la flèche vers le haut en bas).
-                          </p>
+
+                        <div className="flex gap-3 items-start bg-slate-900/60 p-2.5 rounded-xl border border-white/5">
+                          <div className="w-6 h-6 bg-amber-500/20 text-amber-400 rounded-lg flex items-center justify-center text-xs font-bold font-mono shrink-0">2</div>
+                          <div className="text-xs text-slate-300 leading-relaxed flex-1">
+                            Appuyez sur l'icône <strong className="text-white">Partager</strong> en bas de Safari :
+                            <span className="inline-flex items-center gap-1 ml-1.5 px-2 py-0.5 bg-amber-500/20 border border-amber-500/30 rounded text-amber-300 font-bold text-[10px]">
+                              <Share2 className="w-3 h-3" /> Partager
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex gap-3 items-start">
-                          <div className="w-5 h-5 bg-white/5 rounded-full flex items-center justify-center text-[10px] text-teal-400 font-mono shrink-0 mt-0.5">3</div>
-                          <p className="text-xs text-slate-300 leading-relaxed font-light">
-                            Descendez dans le menu et appuyez sur <strong className="text-amber-500">"Sur l'écran d'accueil"</strong> (Add to Home Screen).
-                          </p>
+
+                        <div className="flex gap-3 items-start bg-slate-900/60 p-2.5 rounded-xl border border-white/5">
+                          <div className="w-6 h-6 bg-amber-500/20 text-amber-400 rounded-lg flex items-center justify-center text-xs font-bold font-mono shrink-0">3</div>
+                          <div className="text-xs text-slate-300 leading-relaxed flex-1">
+                            Faites défiler le menu vers le bas et touchez :
+                            <span className="block mt-1 px-2.5 py-1 bg-amber-500 text-black font-bold rounded-lg text-[11px] w-max shadow-md">
+                              ➕ Sur l'écran d'accueil
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex gap-3 items-start">
-                          <div className="w-5 h-5 bg-white/5 rounded-full flex items-center justify-center text-[10px] text-teal-400 font-mono shrink-0 mt-0.5">4</div>
-                          <p className="text-xs text-slate-300 leading-relaxed font-light">
-                            Appuyez enfin sur <strong className="text-white">"Ajouter"</strong> en haut à droite.
+
+                        <div className="flex gap-3 items-start bg-slate-900/60 p-2.5 rounded-xl border border-white/5">
+                          <div className="w-6 h-6 bg-amber-500/20 text-amber-400 rounded-lg flex items-center justify-center text-xs font-bold font-mono shrink-0">4</div>
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            Appuyez sur <strong className="text-white">"Ajouter"</strong> en haut à droite. L'icône <strong className="text-amber-400">AbookScan IA</strong> apparaîtra sur votre écran d'accueil iPhone !
                           </p>
                         </div>
                       </div>

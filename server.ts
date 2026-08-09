@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Stripe from "stripe";
 import dotenv from "dotenv";
-import { transcribeHandwriting, formatTranscriptionText, transcribeAudio } from "./src/lib/gemini";
+import { transcribeHandwriting, formatTranscriptionText, transcribeAudio, translateText, summarizeDocument } from "./src/lib/gemini";
 
 dotenv.config();
 
@@ -74,6 +74,36 @@ async function startServer() {
     }
   });
 
+  // API Route for Instant Multi-language Translation via Gemini
+  app.post("/api/translate", async (req, res) => {
+    const { text, targetLanguage } = req.body;
+    if (!text || text.trim() === "") {
+      return res.status(400).json({ error: "Aucun texte fourni pour la traduction." });
+    }
+    try {
+      const translatedText = await translateText(text, targetLanguage || "French");
+      res.json({ translatedText });
+    } catch (err: any) {
+      console.error("Gemini Translation Route Error:", err);
+      res.status(500).json({ error: err.message || "Échec de la traduction par l'IA. Veuillez réessayer." });
+    }
+  });
+
+  // API Route for Executive Summary & Key Takeaways via Gemini
+  app.post("/api/summarize", async (req, res) => {
+    const { text, language } = req.body;
+    if (!text || text.trim() === "") {
+      return res.status(400).json({ error: "Aucun texte fourni pour la synthèse." });
+    }
+    try {
+      const summaryData = await summarizeDocument(text, language || "French");
+      res.json(summaryData);
+    } catch (err: any) {
+      console.error("Gemini Summarization Route Error:", err);
+      res.status(500).json({ error: err.message || "Échec de la synthèse par l'IA. Veuillez réessayer." });
+    }
+  });
+
   // API Route for Stripe Checkout
   app.post("/api/create-checkout-session", async (req, res) => {
     if (!stripe) {
@@ -123,9 +153,13 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+  
+  // Set generous timeouts for high-resolution AI processing and audio transcription
+  server.timeout = 300000; // 5 minutes
+  server.keepAliveTimeout = 65000;
 }
 
 startServer();

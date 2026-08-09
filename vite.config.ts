@@ -16,6 +16,8 @@ export default defineConfig(({mode}) => {
       },
     },
     build: {
+      outDir: 'dist',
+      emptyOutDir: false,
       target: 'es2015',
     },
     server: {

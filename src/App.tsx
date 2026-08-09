@@ -1,7 +1,9 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Zap, Globe, CreditCard, LayoutGrid, FileText, Loader2, Settings, Share2, Smartphone, Sparkles, X, Mic, Camera } from "lucide-react";
+import { Zap, Globe, CreditCard, LayoutGrid, FileText, Loader2, Settings, Share2, Smartphone, Sparkles, X, Mic, Camera, Upload, HardDrive, FileAudio } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
+import { compressImagesInParallel } from "./lib/imageCompressor";
+import { optimizeAudioBlob } from "./lib/audioCompressor";
 import Scanner from "./components/Scanner";
 import VoiceRecorder from "./components/VoiceRecorder";
 import ResultView from "./components/ResultView";
@@ -20,8 +22,11 @@ export interface TranscriptionResult {
 const LANGUAGES = [
   { code: "French", label: "Français" },
   { code: "English", label: "English" },
+  { code: "Dhu Alur", label: "Dhu Alur / Mahagi (Territoire de Mahagi - RDC)" },
   { code: "Lingala", label: "Lingala" },
   { code: "Swahili", label: "Kiswahili" },
+  { code: "Tshiluba", label: "Tshiluba (Ciluba)" },
+  { code: "Kikongo", label: "Kikongo (Kikongo ya Leta)" },
   { code: "Portuguese", label: "Português" },
   { code: "Spanish", label: "Español" },
   { code: "German", label: "Deutsch" },
@@ -31,13 +36,46 @@ const LANGUAGES = [
   { code: "Arabic", label: "العربية" },
 ];
 
+async function parseApiResponse<T = any>(response: Response, defaultErrorMsg: string): Promise<T> {
+  const text = await response.text().catch(() => "");
+  const trimmed = text.trim();
+
+  // Handle server warmup or Vite HTML fallback pages
+  if (
+    trimmed.startsWith("<!doctype") || 
+    trimmed.startsWith("<html") || 
+    trimmed.includes("Please wait while your application starts") ||
+    trimmed.includes("Starting Server")
+  ) {
+    throw new Error("Le serveur est en cours de démarrage. Veuillez patienter un instant et réessayer.");
+  }
+
+  if (!response.ok) {
+    let serverError = defaultErrorMsg;
+    try {
+      const errObj = JSON.parse(trimmed);
+      if (errObj && errObj.error) {
+        serverError = errObj.error;
+      }
+    } catch (_) {}
+    throw new Error(serverError);
+  }
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch (e) {
+    console.error("API response JSON parse error:", e, text);
+    throw new Error("Le serveur a renvoyé une réponse non valide. Veuillez recharger et réessayer.");
+  }
+}
+
 export default function App() {
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [transcriptionResult, setTranscriptionResult] = useState<TranscriptionResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState("French");
-  const [activeTab, setActiveTab] = useState<"ocr" | "raw_scan" | "voice">("ocr");
+  const [activeTab, setActiveTab] = useState<"ocr" | "voice">("ocr");
   
   // New: Usage tracking for monetization
   const [scanCount, setScanCount] = useState(() => {
@@ -86,6 +124,8 @@ export default function App() {
   const [showInstallBtn, setShowInstallBtn] = useState(false);
   const [qrModalTab, setQrModalTab] = useState<"share" | "install">("share");
   const [showFloatingInstallBanner, setShowFloatingInstallBanner] = useState(false);
+  const [openedFileNotice, setOpenedFileNotice] = useState<string | null>(null);
+  const directFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Advanced confidentiality features for maximum Android compliance
   const [isPrivateMode, setIsPrivateMode] = useState(() => {
@@ -95,6 +135,28 @@ export default function App() {
     return localStorage.getItem("abookscan_screen_protect") === "true";
   });
   const [isBlurred, setIsBlurred] = useState(false);
+
+  // Theme management - Default is "dark" mode as requested
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("abookscan_theme");
+    return saved === "light" ? "light" : "dark";
+  });
+
+  const handleThemeChange = (newTheme: "dark" | "light") => {
+    setTheme(newTheme);
+    localStorage.setItem("abookscan_theme", newTheme);
+  };
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "light") {
+      root.classList.add("light");
+      root.classList.remove("dark");
+    } else {
+      root.classList.add("dark");
+      root.classList.remove("light");
+    }
+  }, [theme]);
 
   const handlePrivateModeChange = (val: boolean) => {
     setIsPrivateMode(val);
@@ -208,6 +270,61 @@ export default function App() {
     }
   }, []);
 
+  // Web Launch Queue & PWA Share Target system handler ("Ouvrir avec AbookScan IA")
+  useEffect(() => {
+    const checkSharedFileInIDB = async () => {
+      try {
+        const request = indexedDB.open("abookscan_share_db", 1);
+        request.onsuccess = (e: any) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains("shared_files")) return;
+          const tx = db.transaction("shared_files", "readwrite");
+          const store = tx.objectStore("shared_files");
+          const getReq = store.get("latest_file");
+          getReq.onsuccess = () => {
+            const item = getReq.result;
+            if (item && item.file) {
+              store.delete("latest_file");
+              const file = item.file;
+              setOpenedFileNotice(file.name || "Fichier externe");
+              handleDirectLocalFileUpload([file]);
+            }
+          };
+        };
+      } catch (err) {
+        console.warn("Could not read shared file from IDB:", err);
+      }
+    };
+
+    if ("launchQueue" in window) {
+      try {
+        (window as any).launchQueue.setConsumer(async (launchParams: any) => {
+          if (launchParams.files && launchParams.files.length > 0) {
+            const filesArr: File[] = [];
+            for (const handle of launchParams.files) {
+              const file = await handle.getFile();
+              if (file) filesArr.push(file);
+            }
+            if (filesArr.length > 0) {
+              setOpenedFileNotice(filesArr[0].name);
+              handleDirectLocalFileUpload(filesArr);
+            }
+          }
+        });
+      } catch (e) {
+        console.warn("LaunchQueue error:", e);
+      }
+    }
+
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("shared_file") === "1" || query.get("share_target") === "true" || query.get("file_handler") === "true") {
+      checkSharedFileInIDB();
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else {
+      checkSharedFileInIDB();
+    }
+  }, []);
+
   const handleStripePayment = async () => {
     setIsFinishingPayment(true);
     try {
@@ -250,6 +367,8 @@ export default function App() {
     
     try {
       const mimeType = "image/jpeg";
+      // Optimize images for ultra-fast and reliable multi-page network payload
+      const optimizedImages = await compressImagesInParallel(base64Array, 1200, 0.85);
       
       const response = await fetch("/api/transcribe", {
         method: "POST",
@@ -257,30 +376,17 @@ export default function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          base64Images: base64Array,
+          base64Images: optimizedImages,
           mimeType,
           language: selectedLanguage,
-          rawScan: activeTab === "raw_scan",
         }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        let errorData: any = {};
-        try {
-          errorData = JSON.parse(errorText);
-        } catch (_) {}
-        throw new Error(errorData.error || "La transcription a échoué. Veuillez réessayer.");
-      }
+      const result = await parseApiResponse<TranscriptionResult>(
+        response, 
+        "La transcription a échoué. Veuillez réessayer."
+      );
 
-      const responseText = await response.text();
-      let result;
-      try {
-        result = JSON.parse(responseText);
-      } catch (e) {
-        console.error("Transcribe JSON parse error:", e, responseText);
-        throw new Error("Le serveur de transcription a renvoyé une réponse invalide ou surchargée. Veuillez réessayer dans quelques instants.");
-      }
       setTranscriptionResult(result);
       
       // Zero-Retention check: skip logging if in private mode
@@ -338,23 +444,10 @@ export default function App() {
         }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        let errorData: any = {};
-        try {
-          errorData = JSON.parse(errorText);
-        } catch (_) {}
-        throw new Error(errorData.error || "La transcription vocale a échoué. Veuillez réessayer.");
-      }
-
-      const responseText = await response.text();
-      let result;
-      try {
-        result = JSON.parse(responseText);
-      } catch (e) {
-        console.error("Audio Transcribe JSON parse error:", e, responseText);
-        throw new Error("Le serveur a renvoyé une réponse invalide pour l'audio. Veuillez réessayer.");
-      }
+      const result = await parseApiResponse<{ text: string; summary?: string; keyPoints?: string[] }>(
+        response, 
+        "La transcription vocale a échoué. Veuillez réessayer."
+      );
 
       let combinedText = result.text;
       if (result.summary) {
@@ -391,10 +484,64 @@ export default function App() {
         localStorage.setItem("scriptscan_count", newCount.toString());
       }
     } catch (err: any) {
-      setError(err instanceof Error ? err.message : "Échec de la transcription vocale");
+      let rawError = err instanceof Error ? err.message : "Échec de la transcription vocale";
+      if (rawError === "Failed to fetch" || rawError.includes("Failed to fetch") || rawError.includes("NetworkError")) {
+        rawError = "Connexion au serveur interrompue (fichier audio volumineux ou réseau instable). L'audio a été automatiquement optimisé. Veuillez réanalyser.";
+      }
+      setError(rawError);
       console.error(err);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleDirectLocalFileUpload = async (files: File[]) => {
+    if (!files || files.length === 0) return;
+    setError(null);
+
+    const audioFiles: File[] = [];
+    const docFiles: File[] = [];
+
+    for (const file of files) {
+      const nameLower = file.name.toLowerCase();
+      const isAudio = file.type.startsWith("audio/") || file.type.startsWith("video/") || /\.(mp3|wav|m4a|aac|ogg|webm|flac|amr|wma|mp4)$/i.test(nameLower);
+      if (isAudio) {
+        audioFiles.push(file);
+      } else {
+        docFiles.push(file);
+      }
+    }
+
+    if (audioFiles.length > 0) {
+      const audioFile = audioFiles[0];
+      setIsProcessing(true);
+      setActiveTab("voice");
+      try {
+        const { base64, mimeType } = await optimizeAudioBlob(audioFile);
+        handleAudioCaptured(base64, mimeType, "formatted");
+      } catch (err: any) {
+        setError("Erreur lors de la préparation du fichier audio local : " + (err.message || "Fichier invalide"));
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    if (docFiles.length > 0) {
+      setIsProcessing(true);
+      setActiveTab("ocr");
+      try {
+        const { processUploadedDocumentFiles } = await import("./lib/pdfConverter");
+        const rawImageUrls = await processUploadedDocumentFiles(docFiles);
+        if (rawImageUrls.length === 0) {
+          setError("Aucun contenu manuscrit ou document valide n'a pu être extrait.");
+          setIsProcessing(false);
+          return;
+        }
+        handleImagesCaptured(rawImageUrls);
+      } catch (err: any) {
+        setError("Erreur lors de l'importation du fichier local : " + (err.message || "Fichier non supporté"));
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -620,38 +767,68 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               className="flex-1 flex flex-col justify-center space-y-6"
             >
-              {/* Mode Selector Tabs (OCR vs Raw Document Scan vs Voice Dictation) */}
+              {/* Hidden Direct File Upload Input for Local Audio / Manuscripts */}
+              <input 
+                type="file" 
+                ref={directFileInputRef}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    handleDirectLocalFileUpload(Array.from(e.target.files));
+                  }
+                  e.target.value = "";
+                }}
+                accept="image/*,image/heic,image/heif,.pdf,application/pdf,.doc,.docx,.txt,.csv,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm,.amr"
+                multiple
+                className="hidden"
+              />
+
+              {/* Notification Banner when file is opened via system "Ouvrir avec" / "Partager avec" */}
+              {openedFileNotice && (
+                <div className="w-full max-w-xl mx-auto bg-teal-950/90 border border-teal-500/40 rounded-2xl p-4 flex items-center justify-between gap-3 text-xs text-teal-300 shadow-xl backdrop-blur-md animate-fade-in">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-teal-500/20 text-teal-300 rounded-xl border border-teal-500/30">
+                      <Upload className="w-5 h-5 animate-bounce" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-white text-xs flex items-center gap-2">
+                        Fichier ouvert via "Ouvrir avec AbookScan IA"
+                        <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 text-[9px] uppercase font-mono border border-teal-500/30">
+                          Système
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-teal-200/80 mt-0.5 font-mono truncate max-w-xs sm:max-w-md">
+                        {openedFileNotice}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setOpenedFileNotice(null)}
+                    className="p-1.5 hover:bg-teal-500/20 rounded-lg text-teal-300 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Mode Selector Tabs (OCR vs Voice Dictation vs Direct Local File Upload) */}
               <div className="flex flex-wrap items-center justify-center gap-2.5 pt-8 sm:pt-4">
                 <button
                   type="button"
                   onClick={() => setActiveTab("ocr")}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${
                     activeTab === "ocr"
                       ? "bg-teal-500 text-black shadow-[0_0_20px_rgba(20,184,166,0.4)] scale-105"
                       : "bg-zinc-900/90 text-slate-400 hover:text-white border border-white/10"
                   }`}
                 >
                   <Camera className="w-4 h-4" />
-                  <span>📷 Scan & OCR IA</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("raw_scan")}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${
-                    activeTab === "raw_scan"
-                      ? "bg-gradient-to-r from-emerald-500 to-teal-400 text-black shadow-[0_0_20px_rgba(16,185,129,0.4)] scale-105"
-                      : "bg-zinc-900/90 text-slate-400 hover:text-white border border-white/10"
-                  }`}
-                >
-                  <FileText className="w-4 h-4 text-emerald-400" />
-                  <span>📄 Numérisation Brute (Sans Word)</span>
+                  <span>📷 Scan & OCR IA (Word / Excel)</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setActiveTab("voice")}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${
                     activeTab === "voice"
                       ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)] scale-105"
                       : "bg-zinc-900/90 text-slate-400 hover:text-white border border-white/10"
@@ -660,25 +837,45 @@ export default function App() {
                   <Mic className="w-4 h-4 text-indigo-400 animate-pulse" />
                   <span>🎙️ Dictée Vocale HD</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => directFileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500 hover:text-black shadow-lg shadow-emerald-500/10 scale-100 hover:scale-105 cursor-pointer"
+                  title="Téléverser directement des fichiers audio (MP3, M4A, WAV) ou manuscrits (PDF, Photos) du stockage local"
+                >
+                  <HardDrive className="w-4 h-4 text-emerald-400" />
+                  <span>📁 Téléverser du Stockage Local</span>
+                </button>
               </div>
 
-              {activeTab === "raw_scan" && (
-                <div className="max-w-md mx-auto p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-300 text-xs text-center flex items-center justify-center gap-2">
-                  <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span><strong>Numérisation Brute Directe :</strong> Vos documents sont numérisés tels quels en qualité HD, sans modification, correction ni transformation en Word.</span>
+              {activeTab === "ocr" && (
+                <div className="max-w-md mx-auto p-3 bg-teal-500/10 border border-teal-500/30 rounded-2xl text-teal-300 text-xs text-center flex items-center justify-center gap-2">
+                  <Sparkles className="w-4 h-4 text-teal-400 shrink-0" />
+                  <span><strong>Scan & OCR IA :</strong> Extraction du texte d'écriture manuscrite, correction automatique et conversion intégrale en <strong>Word (.docx)</strong> & Excel.</span>
                 </div>
               )}
 
-              {activeTab === "ocr" || activeTab === "raw_scan" ? (
+              {activeTab === "voice" && (
+                <div className="max-w-md mx-auto p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl text-indigo-300 text-xs text-center flex items-center justify-center gap-2">
+                  <Mic className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span><strong>Dictée Vocale :</strong> Enregistrement vocal HD, transcription automatique, compte-rendu de réunion et export texte.</span>
+                </div>
+              )}
+
+              {activeTab === "ocr" ? (
                 <Scanner 
                   onImagesCaptured={handleImagesCaptured} 
                   selectedLanguage={selectedLanguage}
+                  activeTab={activeTab}
+                  onDirectFileUpload={handleDirectLocalFileUpload}
                 />
               ) : (
                 <VoiceRecorder
                   onAudioCaptured={handleAudioCaptured}
                   selectedLanguage={selectedLanguage}
                   isProcessing={isProcessing}
+                  onDirectFileUpload={handleDirectLocalFileUpload}
                 />
               )}
             </motion.div>
@@ -703,6 +900,7 @@ export default function App() {
               images={capturedImages} 
               result={transcriptionResult} 
               onReset={handleReset} 
+              activeTab={activeTab}
             />
           </div>
         )}
@@ -720,6 +918,8 @@ export default function App() {
           onPrivateModeChange={handlePrivateModeChange}
           isScreenProtect={isScreenProtect}
           onScreenProtectChange={handleScreenProtectChange}
+          theme={theme}
+          onThemeChange={handleThemeChange}
           isPro={isPro}
           proExpiryDate={proExpiryDate}
         />
@@ -734,6 +934,7 @@ export default function App() {
         <TermsModal 
           isOpen={isTermsOpen}
           onClose={() => setIsTermsOpen(false)}
+          theme={theme}
         />
         <OnboardingModal 
           isOpen={isOnboardingOpen}
@@ -775,7 +976,9 @@ export default function App() {
               </div>
 
               <p className="text-[11px] text-slate-400 leading-relaxed font-light">
-                Découvrez l'intégration Android TWA et PWA pour installer l'application instantanément sur votre écran d'accueil, avec un confort de scan complet et sans bordures !
+                {/iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()) 
+                  ? "Installez AbookScan IA sur l'écran d'accueil de votre iPhone via Safari pour un accès instantané en plein écran sans navigateur !"
+                  : "Découvrez l'intégration Android TWA et PWA pour installer l'application instantanément sur votre écran d'accueil, avec un confort de scan complet et sans bordures !"}
               </p>
 
               <div className="flex gap-2.5 mt-1">
@@ -784,7 +987,7 @@ export default function App() {
                   className="flex-1 py-2.5 bg-teal-500 text-black font-bold text-[10px] uppercase tracking-wider rounded-xl hover:bg-teal-400 transition-all shadow-[0_0_15px_rgba(20,184,166,0.3)] text-center flex items-center justify-center gap-1.5"
                 >
                   <Smartphone className="w-3 h-3" />
-                  {showInstallBtn ? "Installer l'App" : "Comment Installer"}
+                  {showInstallBtn ? "Installer l'App" : /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()) ? "Guide iPhone (Safari)" : "Comment Installer"}
                 </button>
                 <button
                   onClick={handleDismissFloatingBanner}

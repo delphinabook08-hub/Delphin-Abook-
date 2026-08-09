@@ -30,10 +30,17 @@
 
 @layer base {
   body {
-    @apply bg-zinc-950 text-slate-300 antialiased selection:bg-teal-500/30;
+    @apply bg-zinc-950 text-slate-100 antialiased selection:bg-teal-500/30 transition-colors duration-200;
     background-image: 
-      radial-gradient(at 0% 0%, hsla(172, 70%, 50%, 0.1) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, hsla(172, 70%, 50%, 0.05) 0px, transparent 50%);
+      radial-gradient(at 0% 0%, hsla(172, 70%, 50%, 0.12) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, hsla(172, 70%, 50%, 0.08) 0px, transparent 50%);
+  }
+
+  html.light body {
+    @apply bg-slate-100 text-slate-900 selection:bg-teal-500/20;
+    background-image: 
+      radial-gradient(at 0% 0%, hsla(172, 70%, 50%, 0.12) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, hsla(172, 70%, 50%, 0.06) 0px, transparent 50%);
   }
 }
 
@@ -43,13 +50,20 @@
 }
 
 .glass-card {
-  @apply bg-white/[0.02] backdrop-blur-2xl border border-white/10;
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+  @apply bg-white/[0.04] backdrop-blur-2xl border border-white/10 shadow-2xl;
+}
+
+html.light .glass-card {
+  @apply bg-white/90 backdrop-blur-2xl border border-slate-200/90 shadow-xl shadow-slate-300/40 text-slate-900;
 }
 
 .tech-grid {
-  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.03) 1px, transparent 0);
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0);
   background-size: 32px 32px;
+}
+
+html.light .tech-grid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.08) 1px, transparent 0);
 }
 
 @keyframes scanner-line {

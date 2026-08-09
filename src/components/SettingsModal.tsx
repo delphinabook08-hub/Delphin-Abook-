@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "motion/react";
-import { X, Globe, History, Phone, Mail, Trash2, ShieldCheck, ExternalLink } from "lucide-react";
+import { X, Globe, History, Phone, Mail, Trash2, ShieldCheck, ExternalLink, Sun, Moon, Palette } from "lucide-react";
 import { useState } from "react";
 
 interface SettingsModalProps {
@@ -15,6 +15,8 @@ interface SettingsModalProps {
   onPrivateModeChange: (val: boolean) => void;
   isScreenProtect: boolean;
   onScreenProtectChange: (val: boolean) => void;
+  theme?: "dark" | "light";
+  onThemeChange?: (theme: "dark" | "light") => void;
   isPro?: boolean;
   proExpiryDate?: string;
 }
@@ -32,6 +34,8 @@ export default function SettingsModal({
   onPrivateModeChange,
   isScreenProtect,
   onScreenProtectChange,
+  theme = "dark",
+  onThemeChange,
   isPro = false,
   proExpiryDate = ""
 }: SettingsModalProps) {
@@ -45,42 +49,56 @@ export default function SettingsModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-md"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
         >
           <motion.div
             initial={{ scale: 0.9, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
-            className="w-full max-w-lg bg-zinc-900 border border-white/5 rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
+            className={`w-full max-w-lg rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[85vh] transition-colors duration-200 border ${
+              theme === "light"
+                ? "bg-white border-slate-200 text-slate-900"
+                : "bg-zinc-900 border-white/10 text-white"
+            }`}
           >
             {/* Header */}
-            <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/5">
-              <h2 className="text-sm font-display font-light text-white flex items-center gap-2">
-                Panneau de Configuration <span className="text-[10px] text-teal-500 font-mono uppercase tracking-widest">v2.0</span>
+            <div className={`p-6 border-b flex items-center justify-between ${
+              theme === "light" ? "border-slate-200 bg-slate-50" : "border-white/5 bg-white/5"
+            }`}>
+              <h2 className="text-sm font-display font-medium flex items-center gap-2">
+                Panneau de Configuration <span className="text-[10px] text-teal-500 font-mono uppercase tracking-widest font-bold">v2.4</span>
               </h2>
               <button 
                 onClick={() => {
                   onClose();
                   setIsConfirmingClear(false);
                 }} 
-                className="p-2 rounded-full hover:bg-white/10 text-slate-400"
+                className={`p-2 rounded-full transition-colors ${
+                  theme === "light" ? "hover:bg-slate-200 text-slate-600" : "hover:bg-white/10 text-slate-400"
+                }`}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex p-2 gap-2 bg-black/20">
+            <div className={`flex p-2 gap-2 ${theme === "light" ? "bg-slate-100" : "bg-black/20"}`}>
               <button 
                 onClick={() => {
                   setActiveTab("general");
                   setIsConfirmingClear(false);
                 }}
                 className={`flex-1 py-3 rounded-2xl text-[10px] uppercase font-bold tracking-widest transition-all flex items-center justify-center gap-2 ${
-                  activeTab === "general" ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"
+                  activeTab === "general"
+                    ? theme === "light"
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                      : "bg-white/10 text-white"
+                    : theme === "light"
+                      ? "text-slate-600 hover:text-slate-900"
+                      : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <ShieldCheck className="w-4 h-4" /> Général
+                <ShieldCheck className="w-4 h-4 text-teal-500" /> Général
               </button>
               <button 
                 onClick={() => {
@@ -88,10 +106,16 @@ export default function SettingsModal({
                   setIsConfirmingClear(false);
                 }}
                 className={`flex-1 py-3 rounded-2xl text-[10px] uppercase font-bold tracking-widest transition-all flex items-center justify-center gap-2 ${
-                  activeTab === "history" ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"
+                  activeTab === "history"
+                    ? theme === "light"
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                      : "bg-white/10 text-white"
+                    : theme === "light"
+                      ? "text-slate-600 hover:text-slate-900"
+                      : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <History className="w-4 h-4" /> Historique
+                <History className="w-4 h-4 text-teal-500" /> Historique ({history.length})
               </button>
             </div>
 
@@ -99,17 +123,68 @@ export default function SettingsModal({
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
               {activeTab === "general" ? (
                 <>
+                  {/* Theme Switcher / Mode Visuel */}
                   <div className="space-y-3">
-                    <label className="text-[10px] uppercase tracking-widest text-teal-500 font-bold block">Langue du Système</label>
+                    <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Palette className="w-3.5 h-3.5" /> Mode Visuel & Thème
+                      </span>
+                      <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 font-semibold">
+                        {theme === "light" ? "Mode Clair Active" : "Mode Sombre (Par défaut)"}
+                      </span>
+                    </label>
+
+                    <div className={`grid grid-cols-2 gap-2.5 p-1.5 rounded-2xl border ${
+                      theme === "light"
+                        ? "bg-slate-100 border-slate-200/80"
+                        : "bg-black/40 border-white/5"
+                    }`}>
+                      <button
+                        type="button"
+                        onClick={() => onThemeChange && onThemeChange("dark")}
+                        className={`flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl text-xs font-bold transition-all ${
+                          theme === "dark"
+                            ? "bg-zinc-800 text-white shadow-md border border-teal-500/40 ring-1 ring-teal-500/20"
+                            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
+                        }`}
+                      >
+                        <Moon className={`w-4 h-4 ${theme === "dark" ? "text-teal-400 fill-teal-400/20" : "text-slate-400"}`} />
+                        <span>Thème Sombre</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onThemeChange && onThemeChange("light")}
+                        className={`flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl text-xs font-bold transition-all ${
+                          theme === "light"
+                            ? "bg-white text-slate-900 shadow-md border border-slate-300 ring-1 ring-slate-200"
+                            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
+                        }`}
+                      >
+                        <Sun className={`w-4 h-4 ${theme === "light" ? "text-amber-500 fill-amber-500/20" : "text-slate-400"}`} />
+                        <span>Thème Clair</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Language Selection */}
+                  <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-3`}>
+                    <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
+                      Langue du Système
+                    </label>
                     <div className="grid grid-cols-2 gap-2">
                       {languages.map((lang) => (
                         <button
                           key={lang.code}
                           onClick={() => onLanguageChange(lang.code)}
-                          className={`p-2.5 rounded-lg border text-[10px] font-mono uppercase tracking-widest transition-all text-left ${
+                          className={`p-2.5 rounded-xl border text-[10px] font-mono uppercase tracking-widest transition-all text-left ${
                             selectedLanguage === lang.code 
-                            ? "bg-teal-500/20 border-teal-500 text-teal-400" 
-                            : "bg-white/5 border-white/5 text-slate-500 hover:border-white/10"
+                            ? theme === "light"
+                              ? "bg-teal-500/10 border-teal-500 text-teal-800 font-bold shadow-sm"
+                              : "bg-teal-500/20 border-teal-500 text-teal-400 font-bold" 
+                            : theme === "light"
+                              ? "bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300"
+                              : "bg-white/5 border-white/5 text-slate-400 hover:border-white/10"
                           }`}
                         >
                           {lang.label}
@@ -118,38 +193,60 @@ export default function SettingsModal({
                     </div>
                   </div>
 
-                  <div className="pt-6 border-t border-white/5 space-y-3 font-sans">
-                    <label className="text-[10px] uppercase tracking-widest text-teal-500 font-bold block">Statut de l'Abonnement</label>
-                    <div className="p-4 bg-white/5 border border-white/5 rounded-2xl flex flex-col gap-2">
+                  {/* Subscription Status */}
+                  <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-3 font-sans`}>
+                    <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
+                      Statut de l'Abonnement
+                    </label>
+                    <div className={`p-4 rounded-2xl border flex flex-col gap-2 ${
+                      theme === "light"
+                        ? "bg-slate-50 border-slate-200"
+                        : "bg-white/5 border-white/5"
+                    }`}>
                       <div className="flex justify-between items-center bg-transparent">
-                        <span className="text-xs text-slate-400">Type de Compte</span>
+                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>Type de Compte</span>
                         <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-widest font-bold ${
-                          isPro ? "bg-teal-500/10 text-teal-400 border border-teal-500/20" : "bg-orange-500/10 text-orange-400 border border-orange-500/20"
+                          isPro 
+                            ? "bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/30" 
+                            : "bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/30"
                         }`}>
                           {isPro ? "ScriptScan Pro" : "Compte Gratuit"}
                         </span>
                       </div>
                       <div className="flex justify-between items-center bg-transparent">
-                        <span className="text-xs text-slate-400">Période de Validité</span>
-                        <span className="text-xs text-slate-200 font-mono">{isPro ? "Abonnement 3 Mois" : "Limité" }</span>
+                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>Période de Validité</span>
+                        <span className={`text-xs font-mono font-medium ${theme === "light" ? "text-slate-800" : "text-slate-200"}`}>
+                          {isPro ? "Abonnement 3 Mois" : "Limité"}
+                        </span>
                       </div>
                       {isPro && proExpiryDate && (
-                        <div className="flex justify-between items-center border-t border-white/5 pt-2 mt-1 bg-transparent">
-                          <span className="text-xs text-slate-400">Date d'Expiration</span>
-                          <span className="text-xs text-teal-400 font-bold font-mono">{proExpiryDate}</span>
+                        <div className={`flex justify-between items-center border-t pt-2 mt-1 bg-transparent ${
+                          theme === "light" ? "border-slate-200" : "border-white/5"
+                        }`}>
+                          <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>Date d'Expiration</span>
+                          <span className="text-xs text-teal-600 dark:text-teal-400 font-bold font-mono">{proExpiryDate}</span>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="pt-6 border-t border-white/5 space-y-4">
-                    <label className="text-[10px] uppercase tracking-widest text-teal-500 font-bold block">Sécurité & Confidentialité</label>
+                  {/* Security & Confidentiality */}
+                  <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-4`}>
+                    <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
+                      Sécurité & Confidentialité
+                    </label>
                     <div className="space-y-3">
                       {/* Zero retention toggle */}
-                      <div className="flex items-center justify-between p-3.5 bg-white/5 rounded-2xl border border-white/5">
+                      <div className={`flex items-center justify-between p-3.5 rounded-2xl border ${
+                        theme === "light"
+                          ? "bg-slate-50 border-slate-200"
+                          : "bg-white/5 border-white/5"
+                      }`}>
                         <div className="space-y-0.5 text-left pr-4">
-                          <span className="block text-xs font-semibold text-white">Mode Zéro-Rétention</span>
-                          <span className="block text-[8px] text-slate-500 leading-relaxed font-light">
+                          <span className={`block text-xs font-semibold ${theme === "light" ? "text-slate-900" : "text-white"}`}>
+                            Mode Zéro-Rétention
+                          </span>
+                          <span className={`block text-[8px] leading-relaxed font-light ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>
                             Bloque l'historique et élimine les fichiers de la mémoire vive instantanément après traitement.
                           </span>
                         </div>
@@ -157,22 +254,30 @@ export default function SettingsModal({
                           type="button"
                           onClick={() => onPrivateModeChange(!isPrivateMode)}
                           className={`w-11 h-6 rounded-full p-0.5 transition-all shrink-0 cursor-pointer ${
-                            isPrivateMode ? "bg-teal-500" : "bg-zinc-800"
+                            isPrivateMode 
+                              ? "bg-teal-500" 
+                              : theme === "light" ? "bg-slate-300" : "bg-zinc-800"
                           }`}
                         >
                           <div
-                            className={`w-5 h-5 rounded-full bg-zinc-950 shadow-md transition-all ${
-                              isPrivateMode ? "translate-x-5" : "translate-x-0"
-                            }`}
+                            className={`w-5 h-5 rounded-full shadow-md transition-all ${
+                              theme === "light" ? "bg-white" : "bg-zinc-950"
+                            } ${isPrivateMode ? "translate-x-5" : "translate-x-0"}`}
                           />
                         </button>
                       </div>
 
                       {/* Screen protect toggle */}
-                      <div className="flex items-center justify-between p-3.5 bg-white/5 rounded-2xl border border-white/5">
+                      <div className={`flex items-center justify-between p-3.5 rounded-2xl border ${
+                        theme === "light"
+                          ? "bg-slate-50 border-slate-200"
+                          : "bg-white/5 border-white/5"
+                      }`}>
                         <div className="space-y-0.5 text-left pr-4">
-                          <span className="block text-xs font-semibold text-white">Masquage Écran Récents</span>
-                          <span className="block text-[8px] text-slate-500 leading-relaxed font-light">
+                          <span className={`block text-xs font-semibold ${theme === "light" ? "text-slate-900" : "text-white"}`}>
+                            Masquage Écran Récents
+                          </span>
+                          <span className={`block text-[8px] leading-relaxed font-light ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>
                             Floute l'application quand elle perd le focus ou lors du changement d'application sur Android.
                           </span>
                         </div>
@@ -180,55 +285,90 @@ export default function SettingsModal({
                           type="button"
                           onClick={() => onScreenProtectChange(!isScreenProtect)}
                           className={`w-11 h-6 rounded-full p-0.5 transition-all shrink-0 cursor-pointer ${
-                            isScreenProtect ? "bg-teal-500" : "bg-zinc-800"
+                            isScreenProtect 
+                              ? "bg-teal-500" 
+                              : theme === "light" ? "bg-slate-300" : "bg-zinc-800"
                           }`}
                         >
                           <div
-                            className={`w-5 h-5 rounded-full bg-zinc-950 shadow-md transition-all ${
-                              isScreenProtect ? "translate-x-5" : "translate-x-0"
-                            }`}
+                            className={`w-5 h-5 rounded-full shadow-md transition-all ${
+                              theme === "light" ? "bg-white" : "bg-zinc-950"
+                            } ${isScreenProtect ? "translate-x-5" : "translate-x-0"}`}
                           />
                         </button>
                       </div>
                     </div>
                   </div>
 
-                  <div className="pt-6 border-t border-white/5 space-y-4">
-                    <label className="text-[10px] uppercase tracking-widest text-teal-500 font-bold block">Canaux d'assistance</label>
+                  {/* Support Channels */}
+                  <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-4`}>
+                    <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
+                      Canaux d'assistance
+                    </label>
                     <div className="space-y-2">
-                      <a href="tel:+243811339303" className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-all group">
-                        <div className="p-2.5 rounded-lg bg-teal-500/10 text-teal-500">
+                      <a 
+                        href="tel:+243811339303" 
+                        className={`flex items-center gap-3 p-3 rounded-xl border transition-all group ${
+                          theme === "light"
+                            ? "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                            : "bg-white/5 border-white/5 hover:bg-white/10"
+                        }`}
+                      >
+                        <div className="p-2.5 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-500">
                           <Phone className="w-4 h-4" />
                         </div>
                         <div>
-                          <span className="block text-[8px] text-slate-500 uppercase tracking-widest mb-0.5">Téléphone Direct</span>
-                          <span className="text-xs text-white font-mono">+243 811 339 303</span>
+                          <span className={`block text-[8px] uppercase tracking-widest mb-0.5 ${theme === "light" ? "text-slate-500" : "text-slate-400"}`}>
+                            Téléphone Direct
+                          </span>
+                          <span className={`text-xs font-mono font-medium ${theme === "light" ? "text-slate-900" : "text-white"}`}>
+                            +243 811 339 303
+                          </span>
                         </div>
-                        <ExternalLink className="w-3.5 h-3.5 ml-auto text-slate-700 group-hover:text-teal-500" />
+                        <ExternalLink className={`w-3.5 h-3.5 ml-auto transition-colors ${
+                          theme === "light" ? "text-slate-400 group-hover:text-teal-600" : "text-slate-600 group-hover:text-teal-400"
+                        }`} />
                       </a>
-                      <a href="mailto:delphinabook08@gmail.com" className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-all group">
-                        <div className="p-2.5 rounded-lg bg-teal-500/10 text-teal-500">
+
+                      <a 
+                        href="mailto:delphinabook08@gmail.com" 
+                        className={`flex items-center gap-3 p-3 rounded-xl border transition-all group ${
+                          theme === "light"
+                            ? "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                            : "bg-white/5 border-white/5 hover:bg-white/10"
+                        }`}
+                      >
+                        <div className="p-2.5 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-500">
                           <Mail className="w-4 h-4" />
                         </div>
                         <div>
-                          <span className="block text-[8px] text-slate-500 uppercase tracking-widest mb-0.5">Email Support</span>
-                          <span className="text-xs text-white font-mono">delphinabook08@gmail.com</span>
+                          <span className={`block text-[8px] uppercase tracking-widest mb-0.5 ${theme === "light" ? "text-slate-500" : "text-slate-400"}`}>
+                            Email Support
+                          </span>
+                          <span className={`text-xs font-mono font-medium ${theme === "light" ? "text-slate-900" : "text-white"}`}>
+                            delphinabook08@gmail.com
+                          </span>
                         </div>
-                        <ExternalLink className="w-3.5 h-3.5 ml-auto text-slate-700 group-hover:text-teal-500" />
+                        <ExternalLink className={`w-3.5 h-3.5 ml-auto transition-colors ${
+                          theme === "light" ? "text-slate-400 group-hover:text-teal-600" : "text-slate-600 group-hover:text-teal-400"
+                        }`} />
                       </a>
                     </div>
                   </div>
-
                 </>
               ) : (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] uppercase tracking-widest text-teal-500 font-bold">Archives Locales</label>
+                    <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold">
+                      Archives Locales
+                    </label>
                     {isConfirmingClear ? (
                       <div className="flex items-center gap-3">
                         <button 
                           onClick={() => setIsConfirmingClear(false)}
-                          className="text-[8px] uppercase tracking-widest text-slate-500 hover:text-white transition-colors"
+                          className={`text-[8px] uppercase tracking-widest transition-colors ${
+                            theme === "light" ? "text-slate-500 hover:text-slate-900" : "text-slate-400 hover:text-white"
+                          }`}
                         >
                           Annuler
                         </button>
@@ -237,7 +377,7 @@ export default function SettingsModal({
                             onClearHistory();
                             setIsConfirmingClear(false);
                           }}
-                          className="text-[8px] uppercase tracking-widest text-red-500 font-bold hover:text-red-400 transition-colors bg-red-500/10 px-2 py-1 rounded"
+                          className="text-[8px] uppercase tracking-widest text-red-500 font-bold hover:text-red-600 transition-colors bg-red-500/10 px-2 py-1 rounded"
                         >
                           Confirmer la suppression
                         </button>
@@ -246,7 +386,7 @@ export default function SettingsModal({
                       <button 
                         onClick={() => setIsConfirmingClear(true)}
                         disabled={history.length === 0}
-                        className="text-[8px] uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors disabled:opacity-20 flex items-center gap-1 group"
+                        className="text-[8px] uppercase tracking-widest text-red-500 hover:text-red-600 transition-colors disabled:opacity-20 flex items-center gap-1 group font-bold"
                       >
                         <Trash2 className="w-3 h-3 group-hover:animate-shake" /> Tout supprimer
                       </button>
@@ -255,10 +395,14 @@ export default function SettingsModal({
 
                   {history.length === 0 ? (
                     <div className="py-20 flex flex-col items-center justify-center text-center space-y-4">
-                      <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center text-slate-700">
+                      <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
+                        theme === "light" ? "bg-slate-100 text-slate-400" : "bg-white/5 text-slate-600"
+                      }`}>
                         <History className="w-8 h-8" />
                       </div>
-                      <p className="text-[10px] uppercase tracking-widest text-slate-500">Aucune archive détectée</p>
+                      <p className={`text-[10px] uppercase tracking-widest ${theme === "light" ? "text-slate-500" : "text-slate-400"}`}>
+                        Aucune archive détectée
+                      </p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 gap-3">
@@ -269,16 +413,30 @@ export default function SettingsModal({
                             onSelectHistoryItem(item);
                             onClose();
                           }}
-                          className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-all text-left group"
+                          className={`flex items-center gap-4 p-4 rounded-2xl border transition-all text-left group ${
+                            theme === "light"
+                              ? "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                              : "bg-white/5 border-white/5 hover:bg-white/10"
+                          }`}
                         >
-                          <div className="w-12 h-16 rounded-lg overflow-hidden bg-black flex-shrink-0 border border-white/10 group-hover:border-teal-500/50 transition-all">
-                            <img src={item.preview} className="w-full h-full object-cover opacity-60" />
+                          <div className={`w-12 h-16 rounded-lg overflow-hidden flex-shrink-0 border transition-all ${
+                            theme === "light" ? "bg-slate-200 border-slate-300 group-hover:border-teal-500" : "bg-black border-white/10 group-hover:border-teal-500/50"
+                          }`}>
+                            <img src={item.preview} className="w-full h-full object-cover opacity-80" />
                           </div>
                           <div className="flex-1 overflow-hidden">
-                            <span className="block text-[8px] text-teal-500 font-mono uppercase tracking-widest mb-1">{item.date}</span>
-                            <span className="block text-xs text-white truncate">{item.text.substring(0, 40)}...</span>
+                            <span className="block text-[8px] text-teal-600 dark:text-teal-400 font-mono uppercase tracking-widest mb-1 font-bold">
+                              {item.date}
+                            </span>
+                            <span className={`block text-xs truncate ${theme === "light" ? "text-slate-800 font-medium" : "text-white"}`}>
+                              {item.text.substring(0, 40)}...
+                            </span>
                           </div>
-                          <div className="p-2 rounded-full bg-white/5 group-hover:bg-teal-500 group-hover:text-black transition-all">
+                          <div className={`p-2 rounded-full transition-all ${
+                            theme === "light"
+                              ? "bg-slate-200 group-hover:bg-teal-500 group-hover:text-black"
+                              : "bg-white/5 group-hover:bg-teal-500 group-hover:text-black"
+                          }`}>
                             <ExternalLink className="w-4 h-4" />
                           </div>
                         </button>
@@ -290,8 +448,12 @@ export default function SettingsModal({
             </div>
 
             {/* Footer */}
-            <div className="p-6 bg-black/40 border-t border-white/5 text-center">
-              <p className="text-[8px] text-slate-600 font-mono uppercase tracking-[0.3em]">
+            <div className={`p-5 border-t text-center ${
+              theme === "light" ? "bg-slate-100 border-slate-200" : "bg-black/40 border-white/5"
+            }`}>
+              <p className={`text-[8px] font-mono uppercase tracking-[0.3em] ${
+                theme === "light" ? "text-slate-500 font-semibold" : "text-slate-500"
+              }`}>
                 Propulsé par AbookScan AI • RDC Kinshasa
               </p>
             </div>

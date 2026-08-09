@@ -19,5 +19,40 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
+  ],
+  "share_target": {
+    "action": "/?share_target=true",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "file",
+          "accept": [
+            "audio/*",
+            "image/*",
+            "application/pdf",
+            "text/plain",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          ]
+        }
+      ]
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "/?file_handler=true",
+      "name": "Ouvrir avec AbookScan IA",
+      "accept": {
+        "audio/*": [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".webm", ".amr"],
+        "image/*": [".jpg", ".jpeg", ".png", ".webp", ".heic"],
+        "application/pdf": [".pdf"],
+        "text/plain": [".txt"]
+      }
+    }
   ]
 }
