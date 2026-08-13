@@ -179,10 +179,10 @@ async function reliableGenerateContent(params: {
   config?: any;
 }): Promise<any> {
   // A sequential, safe model fallback list with valid active Gemini models.
-  // If gemini-3.6-flash reaches quota or is busy, fallback seamlessly to gemini-2.5-flash or gemini-2.5-pro.
+  // Uses gemini-3.7-flash with seamless fallback to gemini-2.5-flash or gemini-2.5-pro if needed.
   const modelsToTry = Array.from(new Set([
     params.model,
-    "gemini-3.6-flash",
+    "gemini-3.7-flash",
     "gemini-2.5-flash",
     "gemini-2.5-pro"
   ].filter(Boolean)));
@@ -1114,7 +1114,7 @@ DO NOT STOP AFTER PAGE 1. You MUST transcribe ALL ${pageCount} pages completely.
         8. Preserve the natural reading order across all ${pageCount} pages.`;
 
     const response = await reliableGenerateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.7-flash",
       contents: {
         parts: [
           {
@@ -1202,7 +1202,7 @@ export async function formatTranscriptionText(text: string, style: string, langu
     }
 
     const response = await reliableGenerateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.7-flash",
       contents: [
         {
           text: `${instruction}
@@ -1316,7 +1316,7 @@ export async function transcribeAudio(
     }
 
     const response = await reliableGenerateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.7-flash",
       contents: {
         parts: [
           {
@@ -1415,7 +1415,7 @@ export async function translateText(text: string, targetLanguage: string): Promi
     const conjugationPrompt = isAlur ? getAlurConjugationEnginePrompt() : "";
 
     const response = await reliableGenerateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.7-flash",
       contents: [
         {
           text: `Vous êtes un traducteur professionnel expert et linguiste natif spécialisé.
@@ -1463,7 +1463,7 @@ export interface DocumentSummaryResult {
 export async function summarizeDocument(text: string, language: string = "French"): Promise<DocumentSummaryResult> {
   try {
     const response = await reliableGenerateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.7-flash",
       contents: [
         {
           text: `Analyse ce document numérisé et génère une synthèse analytique claire en ${language}.

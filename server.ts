@@ -40,7 +40,7 @@ async function startServer() {
     }
   });
 
-  // API Route for High-Quality Audio / Voice Transcription via Gemini 3.6 Flash
+  // API Route for High-Quality Audio / Voice Transcription via Gemini 3.7 Flash
   app.post("/api/transcribe-audio", async (req, res) => {
     const { audioBase64, mimeType, language, promptMode } = req.body;
     
