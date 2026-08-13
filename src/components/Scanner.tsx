@@ -6,6 +6,7 @@ import { compressImagesInParallel } from "../lib/imageCompressor";
 import { autoCropAndTrimPaper, autoCropBatch, ScanFilterMode } from "../lib/documentCropper";
 import { processUploadedDocumentFiles } from "../lib/pdfConverter";
 import DocumentEditorModal from "./DocumentEditorModal";
+import { getTranslations } from "../lib/translations";
 
 interface ScannerProps {
   onImagesCaptured: (base64Array: string[]) => void;
@@ -15,7 +16,8 @@ interface ScannerProps {
   onDirectFileUpload?: (files: File[]) => void;
 }
 
-export default function Scanner({ onImagesCaptured, onTextCaptured, activeTab, onDirectFileUpload }: ScannerProps) {
+export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLanguage, activeTab, onDirectFileUpload }: ScannerProps) {
+  const t = getTranslations(selectedLanguage);
   const [showCamera, setShowCamera] = useState(false);
   const [capturedPages, setCapturedPages] = useState<string[]>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -436,9 +438,9 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, activeTab, o
             <Camera className="w-6 h-6" />
           </div>
           <div className="text-center relative z-10 space-y-1">
-            <span className="block font-display text-lg text-white tracking-tight">Viseur IA Live</span>
+            <span className="block font-display text-lg text-white tracking-tight">{t.scanner.startCamera}</span>
             <span className="inline-block px-2 py-0.5 rounded-full text-[7px] font-mono uppercase tracking-[0.2em] border bg-teal-500/10 text-teal-400 border-teal-500/20">
-              Flux HTML5 Direct
+              HTML5
             </span>
           </div>
         </motion.button>
@@ -460,9 +462,9 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, activeTab, o
             <Smartphone className="w-6 h-6" />
           </div>
           <div className="text-center relative z-10 space-y-1">
-            <span className="block font-display text-lg text-white tracking-tight">Appareil Natif</span>
+            <span className="block font-display text-lg text-white tracking-tight">{t.scanner.takePhoto}</span>
             <span className="inline-block px-2 py-0.5 rounded-full text-[7px] font-mono uppercase tracking-[0.2em] border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
-              Compatibilité 100%
+              100%
             </span>
           </div>
         </motion.button>
@@ -493,9 +495,9 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, activeTab, o
             <Upload className="w-6 h-6" />
           </div>
           <div className="text-center relative z-10 space-y-1">
-            <span className="block font-display text-lg text-white tracking-tight">Importation</span>
+            <span className="block font-display text-lg text-white tracking-tight">{t.scanner.choosePhotos}</span>
             <span className="inline-block px-2 py-0.5 rounded-full bg-white/5 text-[7px] text-slate-400 font-mono uppercase tracking-[0.2em] border border-white/10 group-hover:text-teal-300 group-hover:border-teal-500/30">
-              Galerie & Fichiers (PDF, Photos, Audio)
+              {t.scanner.gallery} & {t.scanner.pdfDoc}
             </span>
           </div>
         </div>

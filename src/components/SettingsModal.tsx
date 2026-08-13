@@ -1,6 +1,8 @@
 import { motion, AnimatePresence } from "motion/react";
-import { X, Globe, History, Phone, Mail, Trash2, ShieldCheck, ExternalLink, Sun, Moon, Palette } from "lucide-react";
+import { X, Globe, History, Phone, Mail, Trash2, ShieldCheck, ExternalLink, Sun, Moon, Palette, RefreshCw, CheckCircle2, ArrowUpCircle } from "lucide-react";
 import { useState } from "react";
+import { getTranslations } from "../lib/translations";
+import { CURRENT_APP_VERSION, checkAppVersion, forceUpdateAndReload } from "../lib/versionManager";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -41,6 +43,30 @@ export default function SettingsModal({
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<"general" | "history">("general");
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStatusMsg, setUpdateStatusMsg] = useState<string | null>(null);
+
+  const handleManualUpdateCheck = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateStatusMsg(null);
+    try {
+      const result = await checkAppVersion();
+      if (result.isOutdated && result.remoteInfo) {
+        setUpdateStatusMsg(`Nouvelle version v${result.remoteInfo.version} détectée !`);
+        await forceUpdateAndReload();
+      } else {
+        setUpdateStatusMsg(`Votre application est à jour (v${CURRENT_APP_VERSION}).`);
+        setTimeout(() => setUpdateStatusMsg(null), 4000);
+      }
+    } catch (e) {
+      setUpdateStatusMsg("Impossible de joindre le serveur de mise à jour.");
+      setTimeout(() => setUpdateStatusMsg(null), 4000);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const t = getTranslations(selectedLanguage);
 
   return (
     <AnimatePresence>
@@ -66,7 +92,7 @@ export default function SettingsModal({
               theme === "light" ? "border-slate-200 bg-slate-50" : "border-white/5 bg-white/5"
             }`}>
               <h2 className="text-sm font-display font-medium flex items-center gap-2">
-                Panneau de Configuration <span className="text-[10px] text-teal-500 font-mono uppercase tracking-widest font-bold">v2.4</span>
+                {t.settings.title} <span className="text-[10px] text-teal-500 font-mono uppercase tracking-widest font-bold">v2.4</span>
               </h2>
               <button 
                 onClick={() => {
@@ -98,7 +124,7 @@ export default function SettingsModal({
                       : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <ShieldCheck className="w-4 h-4 text-teal-500" /> Général
+                <ShieldCheck className="w-4 h-4 text-teal-500" /> {t.settings.tabGeneral}
               </button>
               <button 
                 onClick={() => {
@@ -115,7 +141,7 @@ export default function SettingsModal({
                       : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <History className="w-4 h-4 text-teal-500" /> Historique ({history.length})
+                <History className="w-4 h-4 text-teal-500" /> {t.settings.tabHistory} ({history.length})
               </button>
             </div>
 
@@ -127,10 +153,7 @@ export default function SettingsModal({
                   <div className="space-y-3">
                     <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block flex items-center justify-between">
                       <span className="flex items-center gap-1.5">
-                        <Palette className="w-3.5 h-3.5" /> Mode Visuel & Thème
-                      </span>
-                      <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 font-semibold">
-                        {theme === "light" ? "Mode Clair Active" : "Mode Sombre (Par défaut)"}
+                        <Palette className="w-3.5 h-3.5" /> {t.settings.visualTheme}
                       </span>
                     </label>
 
@@ -149,7 +172,7 @@ export default function SettingsModal({
                         }`}
                       >
                         <Moon className={`w-4 h-4 ${theme === "dark" ? "text-teal-400 fill-teal-400/20" : "text-slate-400"}`} />
-                        <span>Thème Sombre</span>
+                        <span>{t.settings.darkTheme}</span>
                       </button>
 
                       <button
@@ -162,7 +185,7 @@ export default function SettingsModal({
                         }`}
                       >
                         <Sun className={`w-4 h-4 ${theme === "light" ? "text-amber-500 fill-amber-500/20" : "text-slate-400"}`} />
-                        <span>Thème Clair</span>
+                        <span>{t.settings.lightTheme}</span>
                       </button>
                     </div>
                   </div>
@@ -170,7 +193,7 @@ export default function SettingsModal({
                   {/* Language Selection */}
                   <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-3`}>
                     <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
-                      Langue du Système
+                      {t.settings.systemLanguage}
                     </label>
                     <div className="grid grid-cols-2 gap-2">
                       {languages.map((lang) => (
@@ -196,7 +219,7 @@ export default function SettingsModal({
                   {/* Subscription Status */}
                   <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-3 font-sans`}>
                     <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
-                      Statut de l'Abonnement
+                      {t.settings.subscriptionStatus}
                     </label>
                     <div className={`p-4 rounded-2xl border flex flex-col gap-2 ${
                       theme === "light"
@@ -204,17 +227,17 @@ export default function SettingsModal({
                         : "bg-white/5 border-white/5"
                     }`}>
                       <div className="flex justify-between items-center bg-transparent">
-                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>Type de Compte</span>
+                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>{t.settings.accountType}</span>
                         <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-widest font-bold ${
                           isPro 
                             ? "bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/30" 
                             : "bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/30"
                         }`}>
-                          {isPro ? "ScriptScan Pro" : "Compte Gratuit"}
+                          {isPro ? t.nav.proAccount : t.nav.freeAccount}
                         </span>
                       </div>
                       <div className="flex justify-between items-center bg-transparent">
-                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>Période de Validité</span>
+                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>{t.settings.validity}</span>
                         <span className={`text-xs font-mono font-medium ${theme === "light" ? "text-slate-800" : "text-slate-200"}`}>
                           {isPro ? "Abonnement 3 Mois" : "Limité"}
                         </span>
@@ -223,7 +246,7 @@ export default function SettingsModal({
                         <div className={`flex justify-between items-center border-t pt-2 mt-1 bg-transparent ${
                           theme === "light" ? "border-slate-200" : "border-white/5"
                         }`}>
-                          <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>Date d'Expiration</span>
+                          <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>{t.settings.expiration}</span>
                           <span className="text-xs text-teal-600 dark:text-teal-400 font-bold font-mono">{proExpiryDate}</span>
                         </div>
                       )}
@@ -244,10 +267,10 @@ export default function SettingsModal({
                       }`}>
                         <div className="space-y-0.5 text-left pr-4">
                           <span className={`block text-xs font-semibold ${theme === "light" ? "text-slate-900" : "text-white"}`}>
-                            Mode Zéro-Rétention
+                            {t.settings.zeroRetention}
                           </span>
                           <span className={`block text-[8px] leading-relaxed font-light ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>
-                            Bloque l'historique et élimine les fichiers de la mémoire vive instantanément après traitement.
+                            {t.settings.zeroRetentionDesc}
                           </span>
                         </div>
                         <button
@@ -300,6 +323,63 @@ export default function SettingsModal({
                     </div>
                   </div>
 
+                  {/* Version & Netlify Updates */}
+                  <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-3`}>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
+                        Version & Mises à Jour
+                      </label>
+                      <span className="text-[9px] font-mono text-slate-400">
+                        Netlify Production
+                      </span>
+                    </div>
+
+                    <div className={`p-3.5 rounded-2xl border flex flex-col gap-3 ${
+                      theme === "light" ? "bg-slate-50 border-slate-200" : "bg-white/5 border-white/5"
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-xl bg-teal-500/10 text-teal-500">
+                            <ArrowUpCircle className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className={`block text-xs font-semibold ${theme === "light" ? "text-slate-900" : "text-white"}`}>
+                              AbookScan IA v{CURRENT_APP_VERSION}
+                            </span>
+                            <span className={`block text-[9px] font-light ${theme === "light" ? "text-slate-500" : "text-slate-400"}`}>
+                              Vérification automatique et synchronisation Netlify
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={isCheckingUpdate}
+                          onClick={handleManualUpdateCheck}
+                          className={`px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
+                            theme === "light"
+                              ? "bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200"
+                              : "bg-teal-500/15 text-teal-300 hover:bg-teal-500/30 border border-teal-500/30"
+                          } disabled:opacity-60`}
+                        >
+                          <RefreshCw className={`w-3 h-3 ${isCheckingUpdate ? "animate-spin" : ""}`} />
+                          <span>{isCheckingUpdate ? "Vérification..." : "Vérifier"}</span>
+                        </button>
+                      </div>
+
+                      {updateStatusMsg && (
+                        <div className={`text-[10px] p-2 rounded-lg flex items-center gap-1.5 ${
+                          updateStatusMsg.includes("à jour")
+                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                            : "bg-teal-500/10 text-teal-300 border border-teal-500/20"
+                        }`}>
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>{updateStatusMsg}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Support Channels */}
                   <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-4`}>
                     <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
@@ -331,7 +411,7 @@ export default function SettingsModal({
                       </a>
 
                       <a 
-                        href="mailto:delphinabook08@gmail.com" 
+                        href="mailto:supportabookscan@gmail.com" 
                         className={`flex items-center gap-3 p-3 rounded-xl border transition-all group ${
                           theme === "light"
                             ? "bg-slate-50 border-slate-200 hover:bg-slate-100"
@@ -346,7 +426,7 @@ export default function SettingsModal({
                             Email Support
                           </span>
                           <span className={`text-xs font-mono font-medium ${theme === "light" ? "text-slate-900" : "text-white"}`}>
-                            delphinabook08@gmail.com
+                            supportabookscan@gmail.com
                           </span>
                         </div>
                         <ExternalLink className={`w-3.5 h-3.5 ml-auto transition-colors ${

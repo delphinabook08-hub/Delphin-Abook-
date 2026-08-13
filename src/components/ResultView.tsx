@@ -9,19 +9,21 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import confetti from "canvas-confetti";
 import { TranscriptionResult } from "../lib/gemini";
-import { checkMahagiAlurFidelity, sanitizeAndFixAlurConjugation, FidelityIssue } from "../lib/alurConjugation";
+import { sanitizeAndFixAlurConjugation } from "../lib/alurConjugation";
 import { Document, Packer, Paragraph, TextRun, PageBreak } from "docx";
 import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import TableView from "./TableView";
 import { parseMarkdownTable } from "../lib/tableUtils";
+import { getTranslations } from "../lib/translations";
 
 interface ResultViewProps {
   images: string[];
   result: TranscriptionResult;
   onReset: () => void;
   activeTab?: "ocr" | "voice";
+  selectedLanguage?: string;
 }
 
 async function safeJsonFetch<T = any>(response: Response, defaultErrorMsg: string): Promise<T> {
@@ -53,61 +55,8 @@ async function safeJsonFetch<T = any>(response: Response, defaultErrorMsg: strin
   }
 }
 
-function HighlightedFidelityText({
-  text,
-  issues,
-  onSelectIssue
-}: {
-  text: string;
-  issues: FidelityIssue[];
-  onSelectIssue: (issue: FidelityIssue, original: string) => void;
-}) {
-  if (!issues || issues.length === 0) {
-    return <div className="text-slate-200 font-light text-lg leading-relaxed whitespace-pre-wrap selection:bg-teal-500/30 min-h-[320px]">{text}</div>;
-  }
-
-  const uniqueWords = Array.from(new Set(issues.map(i => i.originalWord)));
-  const patterns = uniqueWords
-    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|');
-
-  if (!patterns) {
-    return <div className="text-slate-200 font-light text-lg leading-relaxed whitespace-pre-wrap selection:bg-teal-500/30 min-h-[320px]">{text}</div>;
-  }
-
-  const regex = new RegExp(`(\\b(?:${patterns})\\b)`, 'gi');
-  const parts = text.split(regex);
-
-  return (
-    <div className="text-slate-200 font-light text-lg leading-relaxed whitespace-pre-wrap selection:bg-teal-500/30 min-h-[320px]">
-      {parts.map((part, idx) => {
-        const matchingIssue = issues.find(
-          iss => iss.originalWord.toLowerCase() === part.toLowerCase()
-        );
-
-        if (matchingIssue) {
-          return (
-            <span
-              key={idx}
-              onClick={() => onSelectIssue(matchingIssue, part)}
-              className="inline-flex items-center gap-1 bg-amber-300 text-zinc-950 font-extrabold px-2 py-0.5 rounded-lg cursor-pointer hover:bg-amber-200 hover:scale-105 transition-all border border-amber-400 shadow-md mx-0.5 my-0.5"
-              title={`Cliquer pour remplacer ${part} par ${matchingIssue.suggestedWord}`}
-            >
-              <span>{part}</span>
-              <span className="text-[10px] bg-zinc-900 text-amber-300 px-1.5 py-0.2 rounded font-mono font-bold">
-                → {matchingIssue.suggestedWord}
-              </span>
-            </span>
-          );
-        }
-
-        return <span key={idx}>{part}</span>;
-      })}
-    </div>
-  );
-}
-
-export default function ResultView({ images, result, onReset }: ResultViewProps) {
+export default function ResultView({ images, result, onReset, activeTab, selectedLanguage }: ResultViewProps) {
+  const t = getTranslations(selectedLanguage || "French");
   const [editableText, setEditableText] = useState(result.text);
 
   // Table Data & Active View Mode State
@@ -210,14 +159,6 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
       setIsPausedAudio(false);
     }
   };
-
-  // FEATURE 5: Mahagi Alur Fidelity Comparison
-  const [isFidelityCheckActive, setIsFidelityCheckActive] = useState(true);
-  const [activeFidelityIssue, setActiveFidelityIssue] = useState<{ issue: FidelityIssue; original: string } | null>(null);
-
-  const fidelityIssues = React.useMemo(() => {
-    return checkMahagiAlurFidelity(editableText);
-  }, [editableText]);
 
   // Translation Handler
   const handleTranslateText = async (lang: string) => {
@@ -1173,25 +1114,6 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
             <span>Résumé IA</span>
           </button>
 
-          {/* FEATURE 5: Fidélité Mahagi / JW.ORG Dhu Alur Button */}
-          <button
-            onClick={() => setIsFidelityCheckActive(!isFidelityCheckActive)}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all shadow-md ${
-              isFidelityCheckActive && fidelityIssues.length > 0
-                ? "bg-amber-400 text-black shadow-amber-400/30 font-extrabold"
-                : "bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30"
-            }`}
-            title="Activer/Désactiver la comparaison de fidélité Mahagi / JW.ORG en Dhu Alur"
-          >
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            <span>Fidélité Dhu Alur</span>
-            {fidelityIssues.length > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-zinc-900 text-amber-300 font-mono text-[9px] font-bold">
-                {fidelityIssues.length}
-              </span>
-            )}
-          </button>
-
           <button 
             onClick={() => setIsEditing(!isEditing)} 
             className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
@@ -1334,42 +1256,6 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
             </div>
 
             <div className="flex-1 overflow-y-auto no-scrollbar p-6 min-h-[350px]">
-              {isFidelityCheckActive && fidelityIssues.length > 0 && activeViewMode === "text" && !isEditing && (
-                <div className="mb-4 p-4 bg-amber-950/70 border border-amber-500/40 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-200 shadow-xl shadow-amber-500/10">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30 shrink-0">
-                      <Sparkles className="w-5 h-5 animate-pulse" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-white text-xs">Comparaison de Fidélité Dhu Alur (Mahagi / JW.ORG)</span>
-                        <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black font-extrabold text-[10px]">
-                          {fidelityIssues.length} terme(s) surligné(s)
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-amber-300/80 mt-0.5">
-                        Mots non conformes au vocabulaire officiel de Mahagi (JW.ORG) surlignés en jaune. Cliquez dessus pour corriger.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const sanitized = sanitizeAndFixAlurConjugation(editableText);
-                        setPreviousTexts(prev => [...prev, editableText]);
-                        setEditableText(sanitized);
-                        confetti({ particleCount: 80 });
-                      }}
-                      className="w-full sm:w-auto px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Tout Corriger ({fidelityIssues.length})</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {activeViewMode === "table" && tableData && tableData.length > 0 ? (
                 <TableView
                   initialData={tableData}
@@ -1384,12 +1270,6 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
                   className="w-full h-full bg-transparent text-white font-light text-xl leading-relaxed outline-none resize-none placeholder:text-zinc-700 min-h-[320px]"
                   placeholder="Commencez à éditer votre texte ici..."
                   autoFocus
-                />
-              ) : isFidelityCheckActive && fidelityIssues.length > 0 ? (
-                <HighlightedFidelityText
-                  text={editableText}
-                  issues={fidelityIssues}
-                  onSelectIssue={(iss, orig) => setActiveFidelityIssue({ issue: iss, original: orig })}
                 />
               ) : (
                 <div className="text-slate-200 font-light text-lg leading-relaxed whitespace-pre-wrap selection:bg-teal-500/30 min-h-[320px]">
@@ -1469,78 +1349,7 @@ export default function ResultView({ images, result, onReset }: ResultViewProps)
         </div>
       </div>
 
-      <AnimatePresence>
-        {activeFidelityIssue && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-              onClick={() => setActiveFidelityIssue(null)}
-            />
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md bg-zinc-900 border border-amber-500/40 rounded-3xl p-6 shadow-2xl space-y-5 z-10"
-            >
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
-                  <Sparkles className="w-5 h-5 animate-pulse" />
-                  <span>Suggestion de Fidélité Dhu Alur Mahagi</span>
-                </div>
-                <button onClick={() => setActiveFidelityIssue(null)} className="text-slate-400 hover:text-white">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
 
-              <div className="space-y-3 text-xs">
-                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-red-400">Terme Décelé (Non Authentique Mahagi) :</span>
-                  <p className="text-sm font-mono text-red-200 font-bold">{activeFidelityIssue.original}</p>
-                </div>
-
-                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-emerald-400">Suggestion Officielle (JW.ORG / Mahagi) :</span>
-                  <p className="text-sm font-mono text-emerald-200 font-bold">{activeFidelityIssue.issue.suggestedWord}</p>
-                </div>
-
-                <div className="p-3 bg-slate-800/80 border border-white/5 rounded-xl text-slate-300 text-[11px] leading-relaxed">
-                  <p className="font-semibold text-amber-300 mb-0.5">Règle & Dictionnaire :</p>
-                  {activeFidelityIssue.issue.reason}
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveFidelityIssue(null)}
-                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-xs rounded-xl"
-                >
-                  Ignorer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const esc = activeFidelityIssue.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const regex = new RegExp(`\\b${esc}\\b`, 'gi');
-                    const updated = editableText.replace(regex, activeFidelityIssue.issue.suggestedWord);
-                    setPreviousTexts(prev => [...prev, editableText]);
-                    setEditableText(updated);
-                    setActiveFidelityIssue(null);
-                    confetti({ particleCount: 50 });
-                  }}
-                  className="flex-1 py-3 bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>Remplacer par {activeFidelityIssue.issue.suggestedWord}</span>
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </motion.div>
   );
 }

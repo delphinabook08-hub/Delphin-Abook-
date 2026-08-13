@@ -6,6 +6,19 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(clients.claim());
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+  if (event.data && event.data.type === "CLEAR_CACHES") {
+    event.waitUntil(
+      caches.keys().then((keys) => {
+        return Promise.all(keys.map((k) => caches.delete(k)));
+      })
+    );
+  }
+});
+
 function saveSharedFileToIDB(file) {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open("abookscan_share_db", 1);

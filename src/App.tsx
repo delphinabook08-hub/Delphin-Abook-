@@ -13,27 +13,36 @@ import SettingsModal from "./components/SettingsModal";
 import QRCodeModal from "./components/QRCodeModal";
 import TermsModal from "./components/TermsModal";
 import OnboardingModal from "./components/OnboardingModal";
+import LanguageSelectionModal from "./components/LanguageSelectionModal";
+import OfflineBanner from "./components/OfflineBanner";
+import { ForceUpdateModal } from "./components/ForceUpdateModal";
+import { checkAppVersion, CURRENT_APP_VERSION, RemoteVersionInfo } from "./lib/versionManager";
+import { getTranslations } from "./lib/translations";
 
 export interface TranscriptionResult {
   text: string;
   tableData?: string[][];
+  summary?: string;
+  keyPoints?: string[];
 }
 
 const LANGUAGES = [
   { code: "French", label: "Français" },
   { code: "English", label: "English" },
-  { code: "Dhu Alur", label: "Dhu Alur / Mahagi (Territoire de Mahagi - RDC)" },
+  { code: "Chinese", label: "中文 (Chinese)" },
+  { code: "Ukrainian", label: "Українська (Ukrainian)" },
+  { code: "Russian", label: "Русский (Russian)" },
+  { code: "German", label: "Deutsch (German)" },
+  { code: "Spanish", label: "Español (Spanish)" },
+  { code: "Portuguese", label: "Português" },
+  { code: "Arabic", label: "العربية (Arabic)" },
+  { code: "Italian", label: "Italiano" },
+  { code: "Japanese", label: "日本語" },
   { code: "Lingala", label: "Lingala" },
   { code: "Swahili", label: "Kiswahili" },
   { code: "Tshiluba", label: "Tshiluba (Ciluba)" },
   { code: "Kikongo", label: "Kikongo (Kikongo ya Leta)" },
-  { code: "Portuguese", label: "Português" },
-  { code: "Spanish", label: "Español" },
-  { code: "German", label: "Deutsch" },
-  { code: "Italian", label: "Italiano" },
-  { code: "Chinese", label: "中文" },
-  { code: "Japanese", label: "日本語" },
-  { code: "Arabic", label: "العربية" },
+  { code: "Dhu Alur", label: "Dhu Alur / Mahagi (RDC)" },
 ];
 
 async function parseApiResponse<T = any>(response: Response, defaultErrorMsg: string): Promise<T> {
@@ -74,7 +83,20 @@ export default function App() {
   const [transcriptionResult, setTranscriptionResult] = useState<TranscriptionResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedLanguage, setSelectedLanguage] = useState("French");
+  const [selectedLanguage, setSelectedLanguage] = useState(() => {
+    return localStorage.getItem("abookscan_selected_language") || "French";
+  });
+  const [isLanguageModalOpen, setIsLanguageModalOpen] = useState(() => {
+    return !localStorage.getItem("abookscan_selected_language");
+  });
+
+  const handleLanguageChange = (lang: string) => {
+    setSelectedLanguage(lang);
+    localStorage.setItem("abookscan_selected_language", lang);
+    setIsLanguageModalOpen(false);
+  };
+
+  const t = getTranslations(selectedLanguage);
   const [activeTab, setActiveTab] = useState<"ocr" | "voice">("ocr");
   
   // New: Usage tracking for monetization
@@ -83,13 +105,8 @@ export default function App() {
     return saved ? parseInt(saved, 10) : 0;
   });
   const [isPro, setIsPro] = useState(() => {
-    const saved = localStorage.getItem("scriptscan_pro");
-    // Granting permanent Pro access to the owner as requested
-    if (saved === null) {
-      localStorage.setItem("scriptscan_pro", "true");
-      return true;
-    }
-    return saved === "true";
+    localStorage.setItem("scriptscan_pro", "true");
+    return true;
   });
   
   // Dynamic 3-month subscription expiration starting today
@@ -114,7 +131,8 @@ export default function App() {
   const [history, setHistory] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem("abookscan_history");
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed.slice(0, 5) : [];
     } catch (e) {
       console.error("Failed to parse history from localStorage", e);
       return [];
@@ -126,6 +144,52 @@ export default function App() {
   const [showFloatingInstallBanner, setShowFloatingInstallBanner] = useState(false);
   const [openedFileNotice, setOpenedFileNotice] = useState<string | null>(null);
   const directFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Forced Version Update & Netlify synchronization control
+  const [updateRequired, setUpdateRequired] = useState(false);
+  const [remoteVersionInfo, setRemoteVersionInfo] = useState<RemoteVersionInfo | null>(null);
+
+  useEffect(() => {
+    const performVersionVerification = async () => {
+      try {
+        const result = await checkAppVersion();
+        if (result.isMandatory || (result.isOutdated && result.remoteInfo?.forceUpdate)) {
+          setRemoteVersionInfo(result.remoteInfo);
+          setUpdateRequired(true);
+        }
+      } catch (err) {
+        console.warn("Version verification failed:", err);
+      }
+    };
+
+    // 1. Initial check upon loading
+    performVersionVerification();
+
+    // 2. Periodic check every 2 minutes
+    const interval = setInterval(performVersionVerification, 2 * 60 * 1000);
+
+    // 3. Trigger check immediately when user returns to the tab/app
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        performVersionVerification();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleVisibility);
+
+    // 4. Listen to ServiceWorker updates
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        performVersionVerification();
+      });
+    }
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleVisibility);
+    };
+  }, []);
 
   // Advanced confidentiality features for maximum Android compliance
   const [isPrivateMode, setIsPrivateMode] = useState(() => {
@@ -361,6 +425,11 @@ export default function App() {
       return;
     }
 
+    if (!navigator.onLine) {
+      setError(t.offline?.message || "Connexion Internet absente. Veuillez vérifier votre réseau Wi-Fi ou vos données mobiles.");
+      return;
+    }
+
     setCapturedImages(base64Array);
     setIsProcessing(true);
     setError(null);
@@ -393,15 +462,27 @@ export default function App() {
       if (!isPrivateMode) {
         const newHistoryItem = {
           text: result.text,
-          preview: base64Array[0],
+          preview: base64Array[0] && base64Array[0].length < 100000 ? base64Array[0] : undefined,
           date: new Date().toLocaleString(),
-          images: base64Array,
+          images: [], // Exclude multi-megabyte raw base64 arrays from state/localStorage to keep app lightweight
           result: result
         };
         
-        const updatedHistory = [newHistoryItem, ...history.slice(0, 19)]; // Limit to 20 items
+        const updatedHistory = [newHistoryItem, ...history].slice(0, 5);
         setHistory(updatedHistory);
-        localStorage.setItem("abookscan_history", JSON.stringify(updatedHistory));
+        try {
+          // Store lightweight history without giant base64 payloads to prevent localstorage freeze
+          const lightweight = updatedHistory.map(h => ({
+            text: h.text,
+            date: h.date,
+            type: h.type,
+            result: h.result,
+            preview: h.preview && h.preview.length < 50000 ? h.preview : undefined
+          }));
+          localStorage.setItem("abookscan_history", JSON.stringify(lightweight));
+        } catch (e) {
+          console.warn("localStorage quota reached for history, storing trimmed version", e);
+        }
       }
 
       if (!isPro) {
@@ -427,6 +508,11 @@ export default function App() {
       return;
     }
 
+    if (!navigator.onLine) {
+      setError(t.offline?.message || "Connexion Internet absente. Veuillez vérifier votre réseau Wi-Fi ou vos données mobiles.");
+      return;
+    }
+
     setIsProcessing(true);
     setError(null);
 
@@ -449,16 +535,21 @@ export default function App() {
         "La transcription vocale a échoué. Veuillez réessayer."
       );
 
+      // Raw, verbatim or formatted transcript text WITHOUT forcing summary at top
       let combinedText = result.text;
-      if (result.summary) {
+
+      // Only if mode was explicitly "summary" or "meeting_notes", append/prepend executive summary
+      if (((promptMode as string) === "summary" || (promptMode as string) === "meeting_notes") && result.summary) {
         combinedText = `📌 SYNTHÈSE VOCALE :\n${result.summary}\n\n` + combinedText;
-      }
-      if (result.keyPoints && result.keyPoints.length > 0) {
-        combinedText += `\n\n🔑 POINTS CLÉS :\n` + result.keyPoints.map((kp: string) => `• ${kp}`).join("\n");
+        if (result.keyPoints && result.keyPoints.length > 0) {
+          combinedText += `\n\n🔑 POINTS CLÉS :\n` + result.keyPoints.map((kp: string) => `• ${kp}`).join("\n");
+        }
       }
 
-      const finalResult = {
+      const finalResult: TranscriptionResult = {
         text: combinedText,
+        summary: result.summary,
+        keyPoints: result.keyPoints,
       };
 
       setTranscriptionResult(finalResult);
@@ -473,9 +564,20 @@ export default function App() {
           type: "audio"
         };
         
-        const updatedHistory = [newHistoryItem, ...history.slice(0, 19)];
+        const updatedHistory = [newHistoryItem, ...history].slice(0, 5);
         setHistory(updatedHistory);
-        localStorage.setItem("abookscan_history", JSON.stringify(updatedHistory));
+        try {
+          const lightweight = updatedHistory.map(h => ({
+            text: h.text,
+            date: h.date,
+            type: h.type,
+            result: h.result,
+            preview: h.preview && h.preview.length < 50000 ? h.preview : undefined
+          }));
+          localStorage.setItem("abookscan_history", JSON.stringify(lightweight));
+        } catch (e) {
+          console.warn("localStorage quota exceeded for audio history", e);
+        }
       }
 
       if (!isPro) {
@@ -707,7 +809,7 @@ export default function App() {
                   <div className="flex items-center gap-3 glass-card p-2 rounded-full w-max min-w-full sm:min-w-0">
                     <div className="flex items-center gap-2 px-6 py-2.5 rounded-full text-[10px] uppercase font-bold tracking-[0.3em] bg-teal-500 text-black shadow-[0_0_30px_rgba(20,184,166,0.4)] whitespace-nowrap">
                       <LayoutGrid className="w-3.5 h-3.5" />
-                      Scanner IA
+                      {t.nav.scanTab}
                     </div>
                     
                     <div className="h-4 w-[1px] bg-white/20 mx-1" />
@@ -717,7 +819,7 @@ export default function App() {
                       className="flex items-center gap-2 px-5 py-2.5 rounded-full text-[10px] uppercase font-bold tracking-widest text-slate-400 hover:text-white transition-all whitespace-nowrap overflow-hidden group relative bg-white/5"
                     >
                       <Settings className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-700" />
-                      <span>Paramètres</span>
+                      <span>{t.nav.settings}</span>
                     </button>
 
                     <button 
@@ -727,12 +829,12 @@ export default function App() {
                       {showInstallBtn ? (
                         <>
                           <Smartphone className="w-3.5 h-3.5 animate-pulse text-teal-300" />
-                          <span>Installer l'App</span>
+                          <span>{t.nav.installApp}</span>
                         </>
                       ) : (
                         <>
                           <Share2 className="w-3.5 h-3.5 text-teal-400 group-hover:scale-110 transition-transform" />
-                          <span>Installer & Partager</span>
+                          <span>{t.nav.installShare}</span>
                         </>
                       )}
                     </button>
@@ -742,7 +844,7 @@ export default function App() {
                     <div className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/5 rounded-full whitespace-nowrap">
                        <div className={`w-1 h-1 rounded-full ${isPro ? "bg-teal-500" : "bg-orange-500"}`} />
                        <span className="text-[8px] font-mono uppercase tracking-widest text-slate-500">
-                         {isPro ? `Pro • Exp : ${proExpiryDate}` : `${scanCount}/${FREE_LIMIT}`}
+                         {isPro ? `${t.nav.proAccount} • Exp : ${proExpiryDate}` : `${scanCount}/${FREE_LIMIT}`}
                        </span>
                     </div>
 
@@ -752,7 +854,7 @@ export default function App() {
                         <div className="flex items-center gap-1.5 px-3 py-2 bg-teal-500/10 border border-teal-500/20 rounded-full whitespace-nowrap">
                           <div className="w-1 h-1 rounded-full bg-teal-400 animate-pulse shadow-[0_0_8px_rgba(45,212,191,1)]" />
                           <span className="text-[7px] font-mono uppercase tracking-widest text-teal-400 font-bold">
-                            Mode Privé
+                            {t.nav.privateMode}
                           </span>
                         </div>
                       </>
@@ -791,9 +893,9 @@ export default function App() {
                     </div>
                     <div>
                       <p className="font-bold text-white text-xs flex items-center gap-2">
-                        Fichier ouvert via "Ouvrir avec AbookScan IA"
+                        {t.hero.fileOpenedNotice}
                         <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 text-[9px] uppercase font-mono border border-teal-500/30">
-                          Système
+                          {t.hero.fileSystemOpened}
                         </span>
                       </p>
                       <p className="text-[11px] text-teal-200/80 mt-0.5 font-mono truncate max-w-xs sm:max-w-md">
@@ -822,7 +924,7 @@ export default function App() {
                   }`}
                 >
                   <Camera className="w-4 h-4" />
-                  <span>📷 Scan & OCR IA (Word / Excel)</span>
+                  <span>{t.hero.ocrTitle}</span>
                 </button>
 
                 <button
@@ -835,31 +937,30 @@ export default function App() {
                   }`}
                 >
                   <Mic className="w-4 h-4 text-indigo-400 animate-pulse" />
-                  <span>🎙️ Dictée Vocale HD</span>
+                  <span>{t.hero.voiceTitle}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => directFileInputRef.current?.click()}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500 hover:text-black shadow-lg shadow-emerald-500/10 scale-100 hover:scale-105 cursor-pointer"
-                  title="Téléverser directement des fichiers audio (MP3, M4A, WAV) ou manuscrits (PDF, Photos) du stockage local"
                 >
                   <HardDrive className="w-4 h-4 text-emerald-400" />
-                  <span>📁 Téléverser du Stockage Local</span>
+                  <span>{t.hero.uploadTitle}</span>
                 </button>
               </div>
 
               {activeTab === "ocr" && (
                 <div className="max-w-md mx-auto p-3 bg-teal-500/10 border border-teal-500/30 rounded-2xl text-teal-300 text-xs text-center flex items-center justify-center gap-2">
                   <Sparkles className="w-4 h-4 text-teal-400 shrink-0" />
-                  <span><strong>Scan & OCR IA :</strong> Extraction du texte d'écriture manuscrite, correction automatique et conversion intégrale en <strong>Word (.docx)</strong> & Excel.</span>
+                  <span>{t.hero.ocrDesc}</span>
                 </div>
               )}
 
               {activeTab === "voice" && (
                 <div className="max-w-md mx-auto p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl text-indigo-300 text-xs text-center flex items-center justify-center gap-2">
                   <Mic className="w-4 h-4 text-indigo-400 shrink-0" />
-                  <span><strong>Dictée Vocale :</strong> Enregistrement vocal HD, transcription automatique, compte-rendu de réunion et export texte.</span>
+                  <span>{t.hero.voiceDesc}</span>
                 </div>
               )}
 
@@ -901,15 +1002,22 @@ export default function App() {
               result={transcriptionResult} 
               onReset={handleReset} 
               activeTab={activeTab}
+              selectedLanguage={selectedLanguage}
             />
           </div>
         )}
 
+        <LanguageSelectionModal 
+          isOpen={isLanguageModalOpen}
+          languages={LANGUAGES}
+          selectedLanguage={selectedLanguage}
+          onSelectLanguage={handleLanguageChange}
+        />
         <SettingsModal 
           isOpen={isSettingsOpen}
           onClose={() => setIsSettingsOpen(false)}
           selectedLanguage={selectedLanguage}
-          onLanguageChange={setSelectedLanguage}
+          onLanguageChange={handleLanguageChange}
           languages={LANGUAGES}
           history={history}
           onClearHistory={clearHistory}
@@ -935,6 +1043,7 @@ export default function App() {
           isOpen={isTermsOpen}
           onClose={() => setIsTermsOpen(false)}
           theme={theme}
+          selectedLanguage={selectedLanguage}
         />
         <OnboardingModal 
           isOpen={isOnboardingOpen}
@@ -943,6 +1052,20 @@ export default function App() {
             localStorage.setItem("abookscan_onboarded", "true");
           }}
         />
+        <OfflineBanner 
+          theme={theme}
+          selectedLanguage={selectedLanguage}
+        />
+
+        {/* Blocking Mandatory Update Modal for New Netlify Releases */}
+        {updateRequired && (
+          <ForceUpdateModal 
+            currentVersion={CURRENT_APP_VERSION}
+            remoteInfo={remoteVersionInfo}
+            t={t}
+            isMandatory={true}
+          />
+        )}
 
         {/* Automatic Highly Visible PWA Install Banner */}
         <AnimatePresence>

@@ -187,7 +187,16 @@ export const MAHAGI_FIDELITY_DICTIONARY: Array<{
   { pattern: /\bmbek\b/gi, original: "mbek", suggested: "mbe", reason: "Négation Acholi mbek → Utilisez mbe" },
   { pattern: /\bcamo\b/gi, original: "camo", suggested: "camu", reason: "Verbe manger en Acholi/Luo → Utilisez camu (Orthographe Mahagi)" },
   { pattern: /\bpwonjo\b/gi, original: "pwonjo", suggested: "ponjo", reason: "Verbe enseigner → Utilisez ponjo (Mahagi)" },
-  { pattern: /\bPuonjo\b/gi, original: "Puonjo", suggested: "Ponjo", reason: "Orthographe Acholi → Utilisez Ponjo" }
+  { pattern: /\bPuonjo\b/gi, original: "Puonjo", suggested: "Ponjo", reason: "Orthographe Acholi → Utilisez Ponjo" },
+  { pattern: /\bKweno\b/gi, original: "Kweno", suggested: "Kani", reason: "Où en Acholi → Utilisez Kani (Dhu Alur Mahagi)" },
+  { pattern: /\bJo\b/g, original: "Jo", suggested: "Dhanu", reason: "Les gens/Personnes → Utilisez Dhanu (Dhu Alur)" },
+  { pattern: /\bjo\b/g, original: "jo", suggested: "dhanu", reason: "Les gens/Personnes → Utilisez dhanu (Dhu Alur)" },
+  { pattern: /\bJu\b/g, original: "Ju", suggested: "Dhanu", reason: "Les gens/Personnes → Utilisez Dhanu (Dhu Alur)" },
+  { pattern: /\bju\b/g, original: "ju", suggested: "dhanu", reason: "Les gens/Personnes → Utilisez dhanu (Dhu Alur)" },
+  { pattern: /\bnyoorere\b/gi, original: "nyoorere", suggested: "ni nyuthire", reason: "Se montrer/se faire voir → Utilisez ni nyuthire (Dhu Alur)" },
+  { pattern: /\bnyorere\b/gi, original: "nyorere", suggested: "ni nyuthire", reason: "Se montrer/se faire voir → Utilisez ni nyuthire (Dhu Alur)" },
+  { pattern: /\bnyenru\b/gi, original: "nyenru", suggested: "ni nyuthire", reason: "Se montrer/se faire voir → Utilisez ni nyuthire (Dhu Alur)" },
+  { pattern: /\bnyalendo\b/gi, original: "nyalendo", suggested: "", reason: "Mot banni → Supprimez ou remplacez par le mot Alur adéquat" }
 ];
 
 export function checkMahagiAlurFidelity(text: string): FidelityIssue[] {
@@ -286,11 +295,60 @@ export function sanitizeAndFixAlurConjugation(text: string): string {
     [/\bPwonjo\b/gi, "Ponjo"],
 
     // Vocabulaire divers Acholi vs Alur
+    [/\bKop\s+ang'o\b/gi, "Lembang'o"],
+    [/\bKop\b/g, "Lembe"],
+    [/\bkop\b/g, "lembe"],
     [/\bLok\b/g, "Lembe"],
     [/\blok\b/g, "lembe"],
     [/\bGik\b/g, "Gi"],
     [/\bgimoro\b/gi, "gin moko mbe"],
     [/\bmbek\b/gi, "mbe"],
+    [/\bPece\b/gi, "Sente"],
+    [/\bNyithindo\b/gi, "Awiya"],
+    [/\bLacoo\b/gi, "Choo"],
+    [/\bLakur\b/gi, "Jakur"],
+    [/\bLakoor\b/gi, "Jakur"],
+    [/\bAnongo\b/gi, "Anwang'u"],
+    [/\bNongo\b/gi, "Nwang'u"],
+    [/\bKwiya\b/gi, "Ng'eyu ungo"],
+    [/\bjamu\s+mi\s+ng'om\b/gi, "piny mi ng'om"],
+    [/\bjami\s+mi\s+ng'om\b/gi, "piny mi ng'om"],
+    [/\bJamu\s+mi\s+ng'om\b/gi, "Piny mi ng'om"],
+    [/\bJami\s+mi\s+ng'om\b/gi, "Piny mi ng'om"],
+    [/\bJamu\b/g, "Piny"],
+    [/\bjamu\b/g, "piny"],
+    [/\bJami\b/g, "Piny"],
+    [/\bjami\b/g, "piny"],
+    [/\bbe\s+mi\b/gi, "bey mi"],
+    [/\bching'\b/gi, "cing'"],
+    [/\bChing'\b/gi, "Cing'"],
+    [/\bthelo\s+mi\s+kwo\b/gi, "kura mi kwo"],
+    [/\bThelo\s+mi\s+kwo\b/gi, "Kura mi kwo"],
+    [/\bthelo\b/gi, "wel"],
+    [/\bThelo\b/gi, "Wel"],
+    [/\bwell\b/gi, "wel"],
+    [/\bWell\b/gi, "Wel"],
+    [/\bbo\s+kendo\b/gi, "dok kendo"],
+    [/\A\s+itye\b/g, "A tye"],
+    [/\ba\s+itye\b/g, "a tye"],
+    [/\bJu\s+u\s+be\b/gi, "Ju be"],
+    [/\bJu\s+u\s+daru\b/gi, "Ju daru"],
+    [/\bMoth,\s*moth\b/gi, "Mot, mot"],
+    [/\bjurimimba\b/gi, "jurimba"],
+    [/\bKweno\b/g, "Kani"],
+    [/\bkweno\b/g, "kani"],
+    [/\bJo\b/g, "Dhanu"],
+    [/\bjo\b/g, "dhanu"],
+    [/\bJu\b/g, "Dhanu"],
+    [/\bju\b/g, "dhanu"],
+    [/\bnyoorere\b/gi, "nyuthire"],
+    [/\bnyorere\b/gi, "nyuthire"],
+    [/\bNyoorere\b/gi, "Nyuthire"],
+    [/\bNyorere\b/gi, "Nyuthire"],
+    [/\bnyenru\b/gi, "nyuthire"],
+    [/\bNyenru\b/gi, "Nyuthire"],
+    [/\bNyalendo\b/gi, ""],
+    [/\bnyalendo\b/gi, ""],
 
     // Orthographe verbale Alur correcte
     [/\bNi\s+camo\b/gi, "Ni camu"],
@@ -496,7 +554,7 @@ VOUS DEVEZ IMPÉRATIVEMENT APPLIQUER LE MOTEUR DE CONJUGAISON ALUR SUIVANT :
    - Mariage / Union = 'Gamiri'
    - Détresse / Malheur / Épreuve = 'Can' (ex: "nind mi can" = jours de détresse)
    - Sagesse = 'Rieko' (ex: "Woth ku jurieko" = Marche avec les sages)
-   - Appareil enregistreur / Dictaphone / Micro = 'Girakop' (de 'gira' = outil/instrument + 'kop' = parole/voix)
+   - Appareil enregistreur / Dictaphone / Micro = 'Giramak-dwand' / 'Giramak-lembe' (de 'gira' = outil + 'mako' = attraper/enregistrer + 'dwand/lembe' = voix/parole)
    - Document de lecture / Publication = 'Girasoma' (de 'gira' = outil/élément + 'soma' = lecture)
    - Limite / Frontière / Borne = 'Wang kiew' (ex: "wang kiew mi ng'om" = la frontière du pays / la limite du champ)
    - Sous terre = 'i the Ng\'om' (ex: "i the ng'om" = sous le sol / sous terre)
@@ -512,6 +570,33 @@ VOUS DEVEZ IMPÉRATIVEMENT APPLIQUER LE MOTEUR DE CONJUGAISON ALUR SUIVANT :
      * Singulier (Tu) = "Kara man i nyang' zoo" (Ça veut dire que tu as tout compris)
      * Pluriel (Vous) = "Kara man wu nyang' zoo" (Ça veut dire que vous avez tout compris)
 
-TOUTE TRADUCTION VERS LE DHU ALUR DOIT RESPECTER À 100% CES RÈGLES DE CONJUGAISON.
+    - Expressions complémentaires & RÈGLE DE DISTINCTION LINGUISTIQUE (DHU ALUR AUTHENTIQUE) :
+      * Merci aussi / Merci également = 'Afoyo bende'
+      * Merci infiniment = 'Afoyo lee dit akeca' (ou 'Afoyo lee akeca' / 'Afoyo matek akeca')
+      * Pas de problème / Aucun souci = 'Lembe mbe' (ou 'Lembe moko mbe' = aucun problème particulier)
+      * ATTENTION STRICTE : Le Dhu Alur (RDC / Ouganda West-Nile) est une langue Luo distincte. NE JAMAIS utiliser de termes Acholi comme 'Kop' à la place de 'Lembe' ('Lembe' = affaire/parole/problème ; 'Kopo' = tasse).
+      * Pourquoi ? / Pour quelle raison ? = 'Pir ang'o?' (ou 'Pi lembang'o?') — REMARQUE STRICTE : "Pi ang'o" n'existe PAS en Dhu Alur. On dit exclusivement "Pir ang'o ?" ou "Pi lembang'o ?".
+      * Petits enfants (pluriel) = 'awiya matindo'
+      * Au pluriel = 'i dupa' (ex: "i dupa ju yero..." = au pluriel on dit...)
+      * Expression d'encouragement et de gratitude = "Wa foyo lee dit pi ni konyo wa ni wotho i yoo mathira, man ku woro yub mi Dhu Alur ma kakare" (Merci beaucoup pour votre aide à nous faire avancer dans la bonne direction, et pour le respect accordé à la langue Dhu Alur authentique)
+      * Au moins maintenant on s'entend bien = "Twora kawoni wabe winjira maber" (ou "Twora kawoni wa be winjira maber")
+      * Parler agréable / très bien parler = "Tap, kawoni twora ibe weco ma mith akeca" (Exactement, maintenant au moins tu parles très agréablement)
+      * Joie de se comprendre = "Lembe maeni u nyayu anyong'a i cwinya ma wa be nyang'ira maber" (Cela me fait grand plaisir que nous nous comprenions si bien)
+      * Dhu Alur de Mahagi (RDC, Territoire de Mahagi) = "Dhu Alur mi Mahagi" (Référence de parler authentique Alur)
+      * Biens matériels / Choses du monde (contexte spirituel / biblique) = "Piny mi ng'om" (STRICTEMENT ! Ne JAMAIS utiliser 'jamu' ou 'jami' pour les biens matériels du monde dans un contexte spirituel/biblique. Ex: "Les biens matériels de ce monde" = "Piny mi ng'om").
+      * Courir = "Ni ringo" (Infinitif) / "ringo" (Action)
+      * RÈGLES STRICTES SUR LE MOT 'VALEUR' SELON LE SENS :
+        - Valeur (en terme de nombre, chiffres, données, quantité, versets, statistiques) = 'Wel' (ou 'well', ex: "wel mi nindo" = le nombre/la valeur des jours).
+        - Valeur (en terme de comportement, habitudes, principes moraux, valeurs de la vie) = 'Kura' ou 'Kura kwo' (ex: "kura mi kwo mandha" = les vraies valeurs morales de la vie).
+        - Valeur (en terme de prix d'un objet, coût, valeur marchande) = STRICTEMENT 'Bey' (ex: "bey mi piny" = le prix/la valeur marchande de la chose. INTERDIT: 'jamu', 'jami', 'be').
+      * Comportement = "Kura" (attitude, manière d'être ou de s'exprimer) ; "Kura wec" = locution (tournure de phrase / façon de parler).
+      * Le protecteur / gardien = "Ja kur" (avec le préfixe d'agent 'ja-' + 'kur', ex: "Ja kur wec" = le gardien des mots). REMARQUE STRICTE : "Kura" signifie "comportement" (et non gardien), et ne vient pas du verbe "ni kuro".
+      * Finir / Achever = "ni Daru" (ex: "A daru tich meni nyaworo" = J'ai fini ce travail hier).
+      * Avoir été fait / S'accomplir = "ni timire" (forme passive / réfléchie du verbe 'ni timo' = faire, ex: "Tich meni u timire nyaworo" = Ce travail a été fait hier).
+      * "Avec" (Préposition) = "Kud" devant une VOYELLE (ex: "Kud awiya karacelo" = avec les enfants ensemble) ; "Ku" devant une CONSONNE (ex: "Ku judongo" = avec les adultes/anciens).
+      * Et / Avec / Également = "Kede" (S'emploie pour 'avec' ou 'et aussi', aux côtés de 'man')
+      * Avancer ensemble / Entente parfaite = "Ma kan tek ibe kwayu ungo wec moko i dok mange cii wabi woto karcelo man lembe mwa bi rombo" (Tant que tu n'empruntes aucun mot dans d'autres langues, nous avancerons ensemble et notre entente sera parfaite)
+
+TOUTE TRADUCTION VERS LE DHU ALUR DOIT RESPECTER À 100% CES RÈGLES DE CONJUGAISON ET LE VOCABULAIRE DHU ALUR PUR (SANS CONFUSION AVEC L'ACHOLI).
 `;
 }

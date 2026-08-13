@@ -3,6 +3,7 @@ import { Mic, Square, Play, Pause, RefreshCw, Upload, Sparkles, Volume2, Radio, 
 import { motion, AnimatePresence } from "motion/react";
 import { useDropzone } from "react-dropzone";
 import { optimizeAudioBlob } from "../lib/audioCompressor";
+import { getTranslations } from "../lib/translations";
 
 interface VoiceRecorderProps {
   onAudioCaptured: (base64Audio: string, mimeType: string, promptMode: "formatted" | "verbatim" | "meeting_notes") => void;
@@ -12,6 +13,7 @@ interface VoiceRecorderProps {
 }
 
 export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isProcessing, onDirectFileUpload }: VoiceRecorderProps) {
+  const t = getTranslations(selectedLanguage);
   const [activeSourceMode, setActiveSourceMode] = useState<"record" | "upload" | "meeting">("record");
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -1158,7 +1160,7 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
         <div className="space-y-3 pt-2">
           <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
             <Radio className="w-4 h-4 text-indigo-400" />
-            <span>Mode de transcription souhaité</span>
+            <span>{t.voice.modeStandard}</span>
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <button
@@ -1170,8 +1172,8 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
                   : "bg-slate-950/60 border-slate-800 text-slate-400 hover:bg-slate-900"
               }`}
             >
-              <div className="font-bold text-slate-200 mb-1">⚡ Standard & Propre</div>
-              <div className="text-[11px] text-slate-400 leading-snug">Grammaire corrigée, ponctuation naturelle et paragraphes.</div>
+              <div className="font-bold text-slate-200 mb-1">⚡ {t.voice.modeStandard}</div>
+              <div className="text-[11px] text-slate-400 leading-snug">{t.voice.recordingInstruction}</div>
             </button>
 
             <button
@@ -1183,8 +1185,8 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
                   : "bg-slate-950/60 border-slate-800 text-slate-400 hover:bg-slate-900"
               }`}
             >
-              <div className="font-bold text-slate-200 mb-1">📝 Mot à Mot (Fidèle)</div>
-              <div className="text-[11px] text-slate-400 leading-snug">Transcription intégrale brute sans aucune modification.</div>
+              <div className="font-bold text-slate-200 mb-1">📝 {t.voice.modeVerbatim}</div>
+              <div className="text-[11px] text-slate-400 leading-snug">{t.voice.modeVerbatim}</div>
             </button>
 
             <button
@@ -1196,8 +1198,8 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
                   : "bg-slate-950/60 border-slate-800 text-slate-400 hover:bg-slate-900"
               }`}
             >
-              <div className="font-bold text-slate-200 mb-1">📊 Compte-Rendu & Points</div>
-              <div className="text-[11px] text-slate-400 leading-snug">Synthèse structurée, décisions clés et plan d'action.</div>
+              <div className="font-bold text-slate-200 mb-1">📊 {t.voice.modeSummary}</div>
+              <div className="text-[11px] text-slate-400 leading-snug">{t.voice.modeSummary}</div>
             </button>
           </div>
         </div>
@@ -1217,12 +1219,12 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
               {isCompressing || isProcessing ? (
                 <>
                   <Loader2 className="w-5 h-5 text-indigo-200 animate-spin" />
-                  <span>{compressStatus || "Transcription vocale par l'IA Gemini en cours..."}</span>
+                  <span>{compressStatus || t.scanner.processBtn}</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-5 h-5 text-indigo-200 animate-spin-slow" />
-                  <span>Lancer la transcription de l'audio avec l'IA Gemini</span>
+                  <span>{t.voice.stopRecord}</span>
                 </>
               )}
             </button>

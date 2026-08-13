@@ -298,6 +298,23 @@ function getNormalizedLanguageName(lang: string): string {
        - NOTHING / ABSENCE: Use 'Umbe' / 'mbe' and 'Gin moko mbe' (NEVER 'Mbek' or 'Gimoro').
        - TO EAT: Use 'Ni camu' (NEVER 'Ni camo').
        - TO LOSE / GET LOST: Verbe = 'Ni rwinyo' (Perdre / se perdre) | Adjectif = 'Rwinyo' (Perdu) (STRICTEMENT AUTHENTIQUE MAHAGI ALUR - VALIDÉ UTILISATEUR). BAN 'Rwenyo' (forme Acholi).
+       - BANNED WORDS: STRICTLY BAN 'nyalendo'! STRICTLY BAN 'jamu' and 'jami' (use 'piny' / 'piny mi ng'om' or 'gira'/'giragira')! STRICTLY BAN 'Kweno' (use 'Ni kwayu' for borrow; use 'Kani' for where)! STRICTLY BAN 'Jo'/'jo' and 'Ju'/'ju' for gens/people (use STRICTLY 'Dhanu' / 'dhanu')! STRICTLY BAN 'Nyoorere'/'Nyorere'/'Nyenru' (use STRICTLY 'Ni nyuthire' for se montrer/se faire voir)!
+       - NO 'CH' SPELLING: Dhu Alur uses 'c' (NEVER 'ch'!). Use 'cido' (NEVER 'chido'), 'cwiny' (NEVER 'chwiny'), 'coko' (NEVER 'choko').
+       - MES AMIS / NOS AMIS: Use STRICTLY 'Jurimba' (Mes amis) / 'Jurimbwa' (Nos amis) / 'Jarimba' (Mon ami). STRICTLY VALIDATED Dhu Alur forms (NEVER reject 'b' in jurimba/jurimbwa).
+       - ETRE PRESENT: Use 'a tye' / 'i tye' / 'e tye' (NEVER 'a be tye' / 'i be tye').
+       - PARDON: Use STRICTLY 'Kisa' (ex: "Kisa" = pardon; "Ni timo kisa" = pardonner; "Ni kwayu kisa" = demander pardon).
+       - QUI (pronom relatif / interrogatif): Use STRICTLY 'Mu' (ex: "dhano mu bino" = la personne qui vient).
+       - QUE (pronom relatif): Use STRICTLY 'Ma' (ex: "lembe ma i yero" = la parole que tu dis).
+       - WHERE / OÙ: Use STRICTLY 'Kani' (NEVER 'Kweno' nor 'kene').
+       - EMPRUNTER / BORROW: Use STRICTLY 'Ni kwayu' (NEVER 'kweno').
+       - GENS / PEOPLE: Use STRICTLY 'Dhanu' or 'dhanu' (NEVER 'Jo' nor 'Ju').
+       - SE MONTRE / SE FAIRE VOIR: Use STRICTLY 'Ni nyuthire' (NEVER 'nyoorere', 'nyorere', nor 'nyenru').
+       - BIENS MATÉRIELS / CHOSES DU MONDE: In a spiritual / biblical context, use STRICTLY 'Piny mi ng'om' (NEVER 'jamu' nor 'jami').
+       - TO RUN / COURIR: Use STRICTLY 'Ni ringo' (Infinitif) / 'ringo' (Action).
+       - VALEUR (3 SENS DISTINCTS ACCORDÉS PAR L'UTILISATEUR):
+         * Valeur en nombre, chiffres, quantité, verset, statistique = 'Wel' (ou 'well', ex: "wel mi nindo" = le nombre/la valeur des jours).
+         * Valeur en comportement, habitudes, principes moraux, conduite de vie = 'Kura' ou 'Kura kwo' (ex: "kura mi kwo mandha" = les vraies valeurs morales de la vie).
+         * Valeur en prix d'un objet, coût, valeur marchande = STRICTEMENT 'Bey' (ex: "bey mi piny" = le prix/la valeur marchande de la chose. INTERDIT: 'jamu', 'jami', 'be').
        - ADMINISTRATIVE & LEGAL VOCABULARY (TERMES ADMINISTRATIFS ET JUDICIAIRES DUU ALUR) :
          * Chef = 'Jatela'
          * Auditorat militaire = 'odi pido mi askari'
@@ -315,10 +332,10 @@ function getNormalizedLanguageName(lang: string): string {
          * Chien = 'Gwok'
          * Date = 'nindo'
          * En date du 01 = 'i nindo mikwong\'o'
-         * En date du 06 = 'i nindo abusyel'
+         * En date du 06 = 'i nindo abuciel'
          * En date du 30 = 'i nindo pyer adek'
-         * Sixième jour = 'nindo mir\'abusyel'
-         * 6 (Chiffre/Nombre) = 'Abusyel'
+         * Sixième jour = 'nindo mir\'abuciel'
+         * 6 (Chiffre/Nombre) = 'Abuciel'
          * De / Du / De la (préposition générale) = 'mi'
          * De / Du / De la (possession / appartenance à une personne) = 'pa' (RÈGLE STRICTE: utilisez 'pa' SI ET SEULEMENT SI 'de' désigne quelqu'un ou quelque chose qui appartient à une personne, ex: "la maison de Pierre" = "ot pa Pierre". Pour tout autre lien général ou qualification, utilisez 'mi').
        - ABSOLUTE CORPUS CONSTRAINT (JW.ORG & BIBLE DHU ALUR - MAHAGI): Rely STRICTLY and EXCLUSIVELY on the authentic Dhu Alur vocabulary and grammar rules of Mahagi territory (Ituri, RDC) as published on JW.ORG and in the Bible in Dhu Alur. DO NOT invent or import external Acholi, Lango, or generic Luo words, nor words from external online platforms or dictionaries.
@@ -466,7 +483,7 @@ function getNormalizedLanguageName(lang: string): string {
          * Où (Where) = STRICTEMENT 'Kani' (JAMAIS 'kene'). Ex: "Icidho kani?" (Où vas-tu ?), "Itye kani?" (Où es-tu ?).
          * Comment (How) = STRICTEMENT 'Nedi' ou 'Nenedi' (JAMAIS 'ndi'). Ex: "Itye nenedi?" ou "Itye nedi?" (Comment vas-tu ?).
          * Qui (Who) = 'Ng\'a' / 'Ng\'ani'
-         * Quoi / Que (What) = 'Ang\'o' (ex: "Kop ang'o?")
+         * Quoi / Que (What) = 'Ang\'o' (ex: "Lembang'o?")
        - NEGATION & PARTICLES (Règle générale de la Négation en Dhu Alur):
          * Règle Générale pour tous les temps et modes déclaratifs (Présent, Passé, Futur, Conditionnel, Incompli, etc.):
            - On n'utilise JAMAIS 'Ungo' entier pour négativer un verbe conjugué.
@@ -752,7 +769,7 @@ function getNormalizedLanguageName(lang: string): string {
             - 3 = Adek
             - 4 = Ang'wen
             - 5 = Abic (ou Abich)
-            - 6 = Abusyel
+            - 6 = Abuciel
             - 7 = Abiro (ou Abiryo)
             - 8 = Abora (ou Aboro)
             - 9 = Abung'wen
@@ -762,12 +779,12 @@ function getNormalizedLanguageName(lang: string): string {
             - 13 = Apar adek
             - 14 = Apar ang'wen
             - 15 = Apar abic
-            - 16 = Apar abusyel
+            - 16 = Apar abuciel
             - 17 = Apar abiro
             - 18 = Apar abora
             - 19 = Apar abung'wen
             - 20 = Pyer aryo (ou Pyer ario)
-            - Pour les dizaines et nombres composés : les dizaines se forment avec "Pyer" (20 = Pyer aryo / Pyer ario, 30 = Pyer adek, 40 = Pyer ang'wen, 50 = Pyer abic, 60 = Pyer abusyel, 70 = Pyer abiro, 80 = Pyer abora, 90 = Pyer abung'wen).
+            - Pour les dizaines et nombres composés : les dizaines se forment avec "Pyer" (20 = Pyer aryo / Pyer ario, 30 = Pyer adek, 40 = Pyer ang'wen, 50 = Pyer abic, 60 = Pyer abuciel, 70 = Pyer abiro, 80 = Pyer abora, 90 = Pyer abung'wen).
             - RÈGLE DU CONNECTEUR "wi" ENTRE DIZAINE ET UNITÉ : On ajoute impérativement "wi" entre la dizaine (Pyer...) et l'unité.
               Exemples :
               * 21 = Pyer aryo wi acel
@@ -817,7 +834,7 @@ function getNormalizedLanguageName(lang: string): string {
               * Troisième = mir adek (ou Mdek'o)
               * Quatrième = mir ang'wen (ou Mang'wen'o)
               * Cinquième = mir abic (ou Mbic'o)
-              * Sixième = mir'abusyel (ou mir abusyel)
+              * Sixième = mir'abuciel (ou mir abuciel)
               * Septième = mir abiryo
               * Huitième = mir abiro-adek
               * Neuvième = mir abung'wen
@@ -826,10 +843,10 @@ function getNormalizedLanguageName(lang: string): string {
               * Dernier / Dernière = Mogik (ou me tok)
            * DATES ET EXPRESSIONS TEMPORELLES (Dhu Alur authentique) :
              - En date du 01 = "i nindo mikwong'o"
-             - En date du 06 = "i nindo abusyel"
+             - En date du 06 = "i nindo abuciel"
              - En date du 30 = "i nindo pyer adek"
-             - Sixième jour = "nindo mir'abusyel"
-             - RÈGLE POUR "EN DATE DU [X]" = "i nindo [X]" (ex: "En date du 01" = "i nindo mikwong'o", "En date du 06" = "i nindo abusyel", "En date du 30" = "i nindo pyer adek").
+             - Sixième jour = "nindo mir'abuciel"
+             - RÈGLE POUR "EN DATE DU [X]" = "i nindo [X]" (ex: "En date du 01" = "i nindo mikwong'o", "En date du 06" = "i nindo abuciel", "En date du 30" = "i nindo pyer adek").
     2. RELY EXCLUSIVELY ON THE USER-PROVIDED GRAMMATICAL SYSTEM (AUTHENTIC NATIVE TERRITORY ALUR):
         - The user-provided grammatical system and vocabulary represent authentic native Alur from their home territory and MUST serve as the supreme, uncompromised reference.
         - NEVER mix, override, or pollute these authentic native rules with external material, internet sources, or other dialectal variations gathered from other platforms or web dictionaries.
@@ -837,7 +854,7 @@ function getNormalizedLanguageName(lang: string): string {
         - STRICT RULE ON SUBJECT AND VERB SEPARATION (COMME EN FRANÇAIS): On ne relie PAS le sujet et le verbe. Le sujet et le verbe sont deux mots séparés par un espace, exactement comme en français ("Je mange" -> "A maru"). AUCUN trait d'union (-) et AUCUN collage du sujet au verbe (écrire 'A maru', 'I maru', 'E maru', 'Wa maru', 'Wu maru', 'Gi maru' - JAMAIS 'A-maru' ni 'Amaru').
         - STRICT RULE ON 3RD PERSON PLURAL: The 3rd person plural subject pronoun is STRICTLY 'Gi' (e.g. 'Gi maru', 'Gi be cidho', 'Gi bi cidho'), NEVER 'Gik'.
         - STRICT RULE ON INFINITIVES: Verbs in the infinitive ALWAYS take the particle/prefix 'Ni' (like 'to' in English, e.g. 'Ni maru', 'Ni camo', 'Ni cidho') except for rare exceptions.
-        - STRICT RULE ON INTERROGATIVES: 'Où' is STRICTLY 'Kani' (NEVER 'kene'). 'Comment' is STRICTLY 'Nedi' or 'Nenedi' (NEVER 'ndi'). 'Quoi / Que' is STRICTLY 'Ang\'o'. Example: 'Itye nenedi?' or 'Itye nedi?' (Comment vas-tu ?), 'Kop ang\'o?' (Quoi de neuf ?).
+        - STRICT RULE ON INTERROGATIVES: 'Où' is STRICTLY 'Kani' (NEVER 'kene'). 'Comment' is STRICTLY 'Nedi' or 'Nenedi' (NEVER 'ndi'). 'Quoi / Que' is STRICTLY 'Ang\'o'. Example: 'Itye nenedi?' or 'Itye nedi?' (Comment vas-tu ?), 'Lembang\'o?' (Quoi de neuf ? - NEVER 'Kop ang\'o' which is Acholi).
         - STRICT RULE ON VERBS (PLEURER VS COUDRE): To cry / Pleurer = 'Ni ywak' (NEVER 'ni kwoyo'). To sew / Coudre = 'Ni kwoyo'.
         - STRICT RULE ON VOWEL CONTRACTION: When two vowels follow each other (e.g. 'ma' + 'u'), 'a' undergoes elision with apostrophe or is dropped (e.g. 'ng\'a ma u bino' -> 'ng\'a m\'u bino' or 'ng\'a mu bino').
         - STRICT RULE ON GRANDPARENTS & FAMILY: Grandfather is 'Kwaru' (e.g. 'Kwara', 'Kwaru mira'). Child = 'Nyatin', Children = 'Awiya' or 'Nyithindo'.
@@ -949,7 +966,7 @@ function getNormalizedLanguageName(lang: string): string {
          * Bien = STRICTLY 'Maber'
          * Bienfaits / Bonté = STRICTLY 'Bero'
          * Autre salutations & expressions courantes: 
-           - Quoi de neuf ? = STRICTLY 'Lembang\'o' ou 'Nenedi' (ou 'Kop ang\'o?')
+           - Quoi de neuf ? = STRICTLY 'Lembang\'o' ou 'Nenedi' (NEVER 'Kop ang\'o' which is Acholi)
            - Rien de mal = STRICTLY 'Lembe moko mbe'
            - Tout va bien = STRICTLY 'A tye maber' ou 'Lembe zoo utye maber'
            - Non = STRICTLY 'Ung\'o' (ngo) ou 'Umbe' (mbe)
@@ -1011,7 +1028,7 @@ function getNormalizedLanguageName(lang: string): string {
            - Mars = 'Dwi mir adek'
            - Avril = 'Dwi mir ang\'wen'
            - Mai = 'Dwi mir abich'
-           - Juin = 'Dwi mir abicel'
+           - Juin = 'Dwi mir abuciel'
            - Juillet = 'Dwi mir abiryo'
            - Août = 'Dwi mir aboro'
            - Septembre = 'Dwi mir abong\'wen'
@@ -1030,7 +1047,7 @@ function getNormalizedLanguageName(lang: string): string {
            - Crocodile = 'Nyang'
            - Écouter = 'Ni winjo'
            - Regarder / Voir = 'Ni neno' (du verbe 'Ni nen')
-       - HUMAN / PERSON: Use 'Dhano' (human being), 'Ng\'atu' / 'Nghatu' (a person; Plural: 'Jogi' / 'Juk').
+       - HUMAN / PERSON / GENS: Use 'Dhano' / 'Dhanu' (human being / les gens; Plural: 'Dhanu'). BAN 'Jo' and 'Ju' for people/gens.
        - TEACHER / SCHOOL / STUDY: Use 'Juponyi' / 'Jupuony' (teacher), 'Puonjo' / 'Ponyo' (teach/learn), 'Skom' / 'Ekol' (school).
        - TRUTH / LIGHT / PEACE: Use 'Adieri' (truth), 'Ler' (light), 'Kuc' (peace), 'Yomcwiny' (joy).
        - HOLY SPIRIT: Use 'Kudhi Malleng\'o' or 'Kudhi Leng\'o' (Spirit of Purity; NEVER 'Cwiny Maleng' which is Acholi).
@@ -1131,8 +1148,12 @@ DO NOT STOP AFTER PAGE 1. You MUST transcribe ALL ${pageCount} pages completely.
     });
 
     const result = safeParseJson(response.text) || {};
+    let fullText = result.text || "No text detected.";
+    if (/alur|mahagi|dholur/i.test(language)) {
+      fullText = sanitizeAndFixAlurConjugation(fullText);
+    }
     return {
-      text: result.text || "No text detected.",
+      text: fullText,
       tableData: result.tableData && result.tableData.length > 0 ? result.tableData : undefined,
       isRawScan: rawScan
     };
@@ -1194,7 +1215,11 @@ ${text}
       ]
     });
 
-    return response.text || text;
+    let formattedText = response.text || text;
+    if (/alur|mahagi|dholur/i.test(language)) {
+      formattedText = sanitizeAndFixAlurConjugation(formattedText);
+    }
+    return formattedText;
   } catch (error: any) {
     console.error("Formatting error:", error);
     const errorDetail = serializeError(error);
@@ -1302,8 +1327,8 @@ Directives :
 ${modeInstruction}
 
 Règles de sortie JSON :
-1. "text": La transcription textuelle complète et fluide en ${langName}.
-2. "summary": Une synthèse claire de 2-3 phrases sur le contenu de l'enregistrement.
+1. "text": La transcription textuelle intégrale du message audio en ${langName}. ATTENTION : "text" doit contenir UNIQUEMENT le texte retranscrit parlé dans l'audio, SANS ajouter de titre "Résumé", de "Synthèse vocale" ou de préambule dans cette chaîne.
+2. "summary": Une synthèse séparée en 2-3 phrases sur le contenu de l'enregistrement.
 3. "keyPoints": Un tableau (array de strings) des points clés ou idées principales soulevées dans l'enregistrement vocal.`,
           },
           {
@@ -1340,10 +1365,20 @@ Règles de sortie JSON :
     });
 
     const result = safeParseJson(response.text) || {};
+    let transcribedText = result.text || (typeof response.text === "string" ? response.text : "Aucune parole identifiée dans l'enregistrement audio.");
+    let summaryText = result.summary;
+    let keyPointsArr = result.keyPoints && result.keyPoints.length > 0 ? result.keyPoints : undefined;
+
+    if (/alur|mahagi|dholur/i.test(language)) {
+      transcribedText = sanitizeAndFixAlurConjugation(transcribedText);
+      if (summaryText) summaryText = sanitizeAndFixAlurConjugation(summaryText);
+      if (keyPointsArr) keyPointsArr = keyPointsArr.map(kp => sanitizeAndFixAlurConjugation(kp));
+    }
+
     return {
-      text: result.text || (typeof response.text === "string" ? response.text : "Aucune parole identifiée dans l'enregistrement audio."),
-      summary: result.summary,
-      keyPoints: result.keyPoints && result.keyPoints.length > 0 ? result.keyPoints : undefined,
+      text: transcribedText,
+      summary: summaryText,
+      keyPoints: keyPointsArr,
     };
   } catch (error: any) {
     console.error("Audio Transcription error:", error);
