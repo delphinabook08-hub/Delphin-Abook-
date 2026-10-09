@@ -26,20 +26,25 @@ import {
   applyWatermark,
   rotateImage
 } from "../lib/documentCropper";
+import { getTranslations } from "../lib/translations";
 
 interface DocumentEditorModalProps {
   isOpen: boolean;
   pages: string[]; // List of base64 image data URLs
   onClose: () => void;
   onSave: (processedPages: string[]) => void;
+  selectedLanguage?: string;
 }
 
 export default function DocumentEditorModal({
   isOpen,
   pages,
   onClose,
-  onSave
+  onSave,
+  selectedLanguage
 }: DocumentEditorModalProps) {
+  const t = getTranslations(selectedLanguage || "French");
+  const ed = t.editor;
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [pageDataUrls, setPageDataUrls] = useState<string[]>([]);
   const [filterMode, setFilterMode] = useState<ScanFilterMode>("magic");
@@ -336,13 +341,13 @@ export default function DocumentEditorModal({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  Éditeur de Document HD
+                  {ed.title}
                   <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 text-[9px] font-mono border border-teal-500/30 uppercase">
-                    Rognage 4-Points & Filtres HD
+                    {ed.badge}
                   </span>
                 </h3>
                 <p className="text-[10px] text-slate-400">
-                  Ajustez les coins, appliquez Couleur Magique, filigranes et signatures.
+                  {ed.subtitle}
                 </p>
               </div>
             </div>
@@ -355,7 +360,7 @@ export default function DocumentEditorModal({
                 className="px-5 py-2.5 bg-teal-500 hover:bg-teal-400 text-black text-xs font-bold tracking-wider uppercase rounded-xl transition-all shadow-lg shadow-teal-500/20 flex items-center gap-2"
               >
                 <Check className="w-4 h-4" />
-                <span>{isProcessing ? "Traitement..." : "Appliquer & Valider"}</span>
+                <span>{isProcessing ? ed.processingBtn : ed.applyBtn}</span>
               </button>
 
               <button
@@ -452,7 +457,7 @@ export default function DocumentEditorModal({
                   }`}
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Couleur Magique</span>
+                  <span>{ed.filterMagic}</span>
                 </button>
 
                 <button
@@ -464,7 +469,7 @@ export default function DocumentEditorModal({
                       : "bg-zinc-800 text-slate-300 border-white/10 hover:bg-zinc-700"
                   }`}
                 >
-                  <span>📄 Noir & Blanc</span>
+                  <span>{ed.filterBw}</span>
                 </button>
 
                 <button
@@ -476,7 +481,7 @@ export default function DocumentEditorModal({
                       : "bg-zinc-800 text-slate-300 border-white/10 hover:bg-zinc-700"
                   }`}
                 >
-                  <span>☀️ Éclaircir</span>
+                  <span>{ed.filterLighten}</span>
                 </button>
 
                 <button
@@ -488,7 +493,7 @@ export default function DocumentEditorModal({
                       : "bg-zinc-800 text-slate-300 border-white/10 hover:bg-zinc-700"
                   }`}
                 >
-                  <span>🌓 Gris</span>
+                  <span>{ed.filterGrayscale}</span>
                 </button>
 
                 <button
@@ -500,7 +505,7 @@ export default function DocumentEditorModal({
                       : "bg-zinc-800 text-slate-300 border-white/10 hover:bg-zinc-700"
                   }`}
                 >
-                  <span>📷 Original</span>
+                  <span>{ed.filterOriginal}</span>
                 </button>
               </div>
 
@@ -510,17 +515,17 @@ export default function DocumentEditorModal({
                   type="button"
                   onClick={handleAutoDetectCorners}
                   className="px-2.5 py-1.5 rounded-xl bg-teal-500/20 text-teal-300 hover:bg-teal-500/30 border border-teal-500/40 text-xs font-semibold flex items-center gap-1 transition-all"
-                  title="Détecter automatiquement les bords du papier"
+                  title="Auto-Cadrage"
                 >
                   <Crop className="w-4 h-4 text-teal-400" />
-                  <span>Auto-Cadrage</span>
+                  <span>Auto</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleRotate}
                   className="p-2 rounded-xl bg-zinc-800 text-slate-300 hover:text-white border border-white/10 hover:bg-zinc-700 transition-colors"
-                  title="Pivoter de 90°"
+                  title={ed.rotate}
                 >
                   <RotateCw className="w-4 h-4" />
                 </button>
@@ -531,7 +536,7 @@ export default function DocumentEditorModal({
                   className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1 border transition-all ${
                     watermarkText ? "bg-teal-500/20 text-teal-300 border-teal-500/50" : "bg-zinc-800 text-slate-300 border-white/10"
                   }`}
-                  title="Ajouter un filigrane"
+                  title={ed.watermark}
                 >
                   <Type className="w-4 h-4" />
                 </button>
@@ -542,7 +547,7 @@ export default function DocumentEditorModal({
                   className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1 border transition-all ${
                     signatureDataUrl ? "bg-teal-500/20 text-teal-300 border-teal-500/50" : "bg-zinc-800 text-slate-300 border-white/10"
                   }`}
-                  title="Signature manuscrite"
+                  title={ed.signature}
                 >
                   <PenTool className="w-4 h-4" />
                 </button>

@@ -1,25 +1,28 @@
 import React, { useCallback, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Camera, Upload, X, Zap, Smartphone, Crop, Check, Sparkles, Grid, SlidersHorizontal, Sliders } from "lucide-react";
+import { Camera, Upload, X, Zap, ZapOff, Smartphone, Crop, Check, Sparkles, Grid, SlidersHorizontal, Sliders, ArrowLeft, Moon, Sun, Lightbulb, Mic, Music, FileAudio } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { compressImagesInParallel } from "../lib/imageCompressor";
 import { autoCropAndTrimPaper, autoCropBatch, ScanFilterMode } from "../lib/documentCropper";
 import { processUploadedDocumentFiles } from "../lib/pdfConverter";
+import { optimizeAudioBlob } from "../lib/audioCompressor";
 import DocumentEditorModal from "./DocumentEditorModal";
 import { getTranslations } from "../lib/translations";
 
 interface ScannerProps {
   onImagesCaptured: (base64Array: string[]) => void;
+  onMultimodalCaptured?: (base64Array: string[], audioBase64: string, audioMimeType: string) => void;
   onTextCaptured?: (text: string) => void;
   selectedLanguage: string;
   activeTab?: "ocr" | "voice";
   onDirectFileUpload?: (files: File[]) => void;
 }
 
-export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLanguage, activeTab, onDirectFileUpload }: ScannerProps) {
+export default function Scanner({ onImagesCaptured, onMultimodalCaptured, onTextCaptured, selectedLanguage, activeTab, onDirectFileUpload }: ScannerProps) {
   const t = getTranslations(selectedLanguage);
   const [showCamera, setShowCamera] = useState(false);
   const [capturedPages, setCapturedPages] = useState<string[]>([]);
+  const [attachedAudio, setAttachedAudio] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCropping, setIsCropping] = useState(false);
@@ -27,7 +30,10 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
   const [scanFilterMode, setScanFilterMode] = useState<ScanFilterMode>("magic");
   const [showGridOverlay, setShowGridOverlay] = useState(true);
   const [isFlashOn, setIsFlashOn] = useState(false);
+  const [isScreenTorchOn, setIsScreenTorchOn] = useState(false);
+  const [isNightModeEnhance, setIsNightModeEnhance] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
+  const [flashNotice, setFlashNotice] = useState<string | null>(null);
   
   // CamScanner Editor Modal state
   const [showEditorModal, setShowEditorModal] = useState(false);
@@ -37,20 +43,44 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+
+  const showTemporaryNotice = (msg: string) => {
+    setFlashNotice(msg);
+    setTimeout(() => setFlashNotice(null), 3000);
+  };
 
   const toggleFlash = async () => {
     if (videoRef.current?.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       const track = stream.getVideoTracks()[0];
-      try {
-        await track.applyConstraints({
-          advanced: [{ torch: !isFlashOn } as any],
-        });
-        setIsFlashOn(!isFlashOn);
-      } catch (err) {
-        console.error("Error toggling flash:", err);
+      
+      if (hasTorch && track) {
+        try {
+          const nextState = !isFlashOn;
+          await track.applyConstraints({
+            advanced: [{ torch: nextState } as any],
+          });
+          setIsFlashOn(nextState);
+          showTemporaryNotice(nextState ? "⚡ Flash Torche LED activé" : "Flash Torche éteint");
+          return;
+        } catch (err) {
+          console.warn("Hardware torch failed, falling back to Screen Torch:", err);
+        }
       }
     }
+
+    // Fallback or Screen Torch for night illumination
+    const nextScreenTorch = !isScreenTorchOn;
+    setIsScreenTorchOn(nextScreenTorch);
+    setIsNightModeEnhance(nextScreenTorch);
+    showTemporaryNotice(nextScreenTorch ? "💡 Flash Écran Nocturne activé" : "Flash Écran éteint");
+  };
+
+  const toggleNightMode = () => {
+    const nextNight = !isNightModeEnhance;
+    setIsNightModeEnhance(nextNight);
+    showTemporaryNotice(nextNight ? "🌙 Mode Nuit (Basse Lumière) activé" : "Mode Nuit standard");
   };
 
   const startCamera = async () => {
@@ -134,10 +164,26 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
         }
       }, 100);
     } else {
-      console.error("All media device capture streams failed:", fallbackError);
-      setCameraError(
-        "Impossible d'accéder au flux caméra direct. Utilisez l'appareil photo natif Android ci-dessous, cela fonctionne sur 100% des téléphones !"
-      );
+      console.warn("Live camera stream unavailable or permission denied:", fallbackError);
+      const isPermissionDenied = 
+        fallbackError?.name === "NotAllowedError" || 
+        fallbackError?.name === "PermissionDeniedError" || 
+        /permission|denied|allowed/i.test(String(fallbackError?.message || fallbackError));
+
+      if (isPermissionDenied) {
+        setCameraError(
+          "L'autorisation d'accès au flux caméra a été refusée ou restreinte par votre navigateur. L'appareil photo haute résolution de votre appareil a été activé en relais !"
+        );
+      } else {
+        setCameraError(
+          "Impossible d'ouvrir le flux caméra direct dans ce navigateur. Utilisez l'appareil photo haute résolution ci-dessous !"
+        );
+      }
+
+      // Auto-trigger native camera capture so user doesn't get blocked
+      setTimeout(() => {
+        triggerNativeCapture();
+      }, 300);
     }
   };
 
@@ -226,7 +272,14 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext("2d");
-      ctx?.drawImage(video, 0, 0, width, height);
+      if (ctx) {
+        if (isNightModeEnhance || isScreenTorchOn) {
+          ctx.filter = "brightness(1.15) contrast(1.2) saturate(1.1)";
+        } else {
+          ctx.filter = "none";
+        }
+        ctx.drawImage(video, 0, 0, width, height);
+      }
       
       const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
 
@@ -339,6 +392,40 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
 
               <button
                 type="button"
+                onClick={() => audioInputRef.current?.click()}
+                className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shadow-md ${
+                  attachedAudio 
+                    ? "bg-indigo-500/30 border-indigo-400 text-indigo-200" 
+                    : "bg-indigo-500/15 hover:bg-indigo-500/30 text-indigo-300 border-indigo-500/30"
+                }`}
+                title="Joindre un fichier audio ou une dictée vocale au manuscrit"
+              >
+                <Mic className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{attachedAudio ? "🎙️ Audio joint" : "+ Note Vocale / Audio"}</span>
+              </button>
+
+              <input
+                type="file"
+                ref={audioInputRef}
+                accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm,.amr"
+                className="hidden"
+                onChange={async (e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    const file = e.target.files[0];
+                    try {
+                      const { base64, mimeType } = await optimizeAudioBlob(file);
+                      setAttachedAudio({ base64, mimeType, name: file.name });
+                      showTemporaryNotice("🎙️ Fichier audio joint au manuscrit avec succès !");
+                    } catch (err: any) {
+                      showTemporaryNotice("Erreur fichier audio : " + (err.message || "invalide"));
+                    }
+                  }
+                  e.target.value = "";
+                }}
+              />
+
+              <button
+                type="button"
                 onClick={() => {
                   setPagesToEdit(capturedPages);
                   setShowEditorModal(true);
@@ -351,7 +438,10 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
 
               <button
                 type="button"
-                onClick={() => setCapturedPages([])}
+                onClick={() => {
+                  setCapturedPages([]);
+                  setAttachedAudio(null);
+                }}
                 className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs transition-all"
                 title="Effacer tout le dossier"
               >
@@ -359,6 +449,35 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
               </button>
             </div>
           </div>
+
+          {attachedAudio && (
+            <div className="p-3 rounded-2xl bg-indigo-950/60 border border-indigo-500/40 flex items-center justify-between gap-3 text-xs text-indigo-200">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-300">
+                  <FileAudio className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="font-bold text-white flex items-center gap-1.5">
+                    Note Vocale / Fichier Audio joint
+                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-300 font-mono">
+                      Multimodal
+                    </span>
+                  </p>
+                  <p className="text-[10px] text-indigo-300/80 font-mono truncate max-w-xs sm:max-w-md">
+                    {attachedAudio.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAttachedAudio(null)}
+                className="p-1.5 rounded-lg hover:bg-indigo-500/20 text-indigo-300 hover:text-white transition-colors"
+                title="Retirer l'audio joint"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
             {capturedPages.map((page, idx) => (
@@ -399,11 +518,21 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
 
             <button
               type="button"
-              onClick={() => onImagesCaptured(capturedPages)}
+              onClick={() => {
+                if (attachedAudio && onMultimodalCaptured) {
+                  onMultimodalCaptured(capturedPages, attachedAudio.base64, attachedAudio.mimeType);
+                } else {
+                  onImagesCaptured(capturedPages);
+                }
+              }}
               className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-black font-bold text-xs uppercase tracking-widest transition-all shadow-xl shadow-teal-500/20 flex items-center justify-center gap-2 scale-105"
             >
               <Sparkles className="w-4 h-4 text-black" />
-              <span>Numériser tout le dossier ({capturedPages.length} page{capturedPages.length > 1 ? "s" : ""})</span>
+              <span>
+                {attachedAudio 
+                  ? `Numériser Manuscrit + Audio (${capturedPages.length} p. + 🎙️)` 
+                  : `Numériser tout le dossier (${capturedPages.length} page${capturedPages.length > 1 ? "s" : ""})`}
+              </span>
             </button>
           </div>
         </motion.div>
@@ -507,18 +636,40 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs flex flex-col md:flex-row items-center justify-between gap-3 text-left"
+          className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex flex-col md:flex-row items-center justify-between gap-3 text-left shadow-lg"
         >
-          <div className="flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-            <span>{cameraError}</span>
+          <div className="flex items-center gap-2.5">
+            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse" />
+            <span className="leading-relaxed font-light">{cameraError}</span>
           </div>
-          <button
-            onClick={triggerNativeCapture}
-            className="px-4 py-2 bg-amber-500 text-black font-bold uppercase text-[9px] tracking-wider rounded-lg hover:bg-amber-400 transition-all shrink-0 shadow-lg"
-          >
-            Prendre une photo
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {typeof window !== "undefined" && window.self !== window.top && (
+              <button
+                type="button"
+                onClick={() => window.open(window.location.href, "_blank")}
+                className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white font-bold uppercase text-[9px] tracking-wider rounded-lg transition-all"
+                title="Ouvrir dans un nouvel onglet pour autoriser la caméra"
+              >
+                Plein écran
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={triggerNativeCapture}
+              className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-black font-bold uppercase text-[9px] tracking-wider rounded-lg transition-all shadow-md flex items-center gap-1.5"
+            >
+              <Smartphone className="w-3 h-3" />
+              <span>Prendre une photo</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCameraError(null)}
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+              title="Fermer ce message"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </motion.div>
       )}
 
@@ -528,9 +679,16 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/95 backdrop-blur-2xl p-4"
+            className={`fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 transition-colors duration-300 ${
+              isScreenTorchOn ? "bg-white" : "bg-zinc-950/95 backdrop-blur-2xl"
+            }`}
           >
-            <div className="relative w-full max-w-2xl bg-zinc-900 rounded-[3rem] overflow-hidden shadow-[0_0_80px_rgba(0,0,0,0.8)] border border-white/5">
+            {/* Screen Torch High-Brightness Night Ring Frame */}
+            <div className={`relative w-full max-w-2xl rounded-[2.5rem] sm:rounded-[3rem] overflow-hidden transition-all duration-300 ${
+              isScreenTorchOn 
+                ? "bg-white border-8 sm:border-[16px] border-white shadow-[0_0_120px_rgba(255,255,255,1)] ring-8 ring-white" 
+                : "bg-zinc-900 shadow-[0_0_80px_rgba(0,0,0,0.8)] border border-white/5"
+            }`}>
               <video
                 ref={videoRef}
                 autoPlay
@@ -538,14 +696,33 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
                 muted
                 // @ts-ignore
                 webkit-playsinline="true"
-                className={`w-full aspect-[3/4] object-cover brightness-110 transition-all duration-300 ${
+                className={`w-full aspect-[3/4] object-cover transition-all duration-300 ${
                   isCapturing ? "brightness-150 scale-[1.02]" : ""
+                } ${
+                  isNightModeEnhance || isScreenTorchOn 
+                    ? "brightness-125 contrast-125 saturate-125 filter" 
+                    : "brightness-105"
                 }`}
               />
+
+              {/* Temporary Flash / Night Mode Notification Badge */}
+              <AnimatePresence>
+                {flashNotice && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -20, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -10, scale: 0.9 }}
+                    className="absolute top-20 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-black/85 border border-teal-500/40 text-teal-300 text-xs font-mono font-bold shadow-2xl flex items-center gap-2 backdrop-blur-md"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-teal-400 animate-spin" />
+                    <span>{flashNotice}</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               
               {/* Technical Overlay & Grid */}
-              <div className="absolute inset-0 pointer-events-none p-8 flex flex-col justify-between">
-                <div className="absolute inset-8 border border-white/10 rounded-2xl">
+              <div className="absolute inset-0 pointer-events-none p-6 sm:p-8 flex flex-col justify-between">
+                <div className="absolute inset-6 sm:inset-8 border border-white/10 rounded-2xl">
                   <div className="absolute -top-1 -left-1 w-6 h-6 border-t-2 border-l-2 border-teal-500 rounded-tl-lg" />
                   <div className="absolute -top-1 -right-1 w-6 h-6 border-t-2 border-r-2 border-teal-500 rounded-tr-lg" />
                   <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-2 border-l-2 border-teal-500 rounded-bl-lg" />
@@ -554,7 +731,7 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
 
                 {/* Optional Grid alignment lines */}
                 {showGridOverlay && (
-                  <div className="absolute inset-8 grid grid-cols-3 grid-rows-3 pointer-events-none">
+                  <div className="absolute inset-6 sm:inset-8 grid grid-cols-3 grid-rows-3 pointer-events-none">
                     <div className="border-r border-b border-teal-500/20" />
                     <div className="border-r border-b border-teal-500/20" />
                     <div className="border-b border-teal-500/20" />
@@ -577,7 +754,9 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
                 </div>
                 <div className="flex flex-col items-center gap-2">
                    <div className="w-48 h-[1px] bg-gradient-to-r from-transparent via-teal-500 to-transparent animate-pulse" />
-                   <span className="text-[10px] font-mono text-teal-500 uppercase tracking-widest">Alignement Viseur CamScanner</span>
+                   <span className="text-[10px] font-mono text-teal-400 uppercase tracking-widest bg-black/60 px-3 py-1 rounded-full border border-teal-500/20 backdrop-blur-sm">
+                     {isNightModeEnhance || isFlashOn || isScreenTorchOn ? "⚡ Scan Nocturne IA Actif" : "Viseur CamScanner"}
+                   </span>
                 </div>
                 <div className="flex justify-between items-end">
                   <div className="w-8 h-8 border-b-2 border-l-2 border-teal-500/50" />
@@ -585,45 +764,66 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
                 </div>
               </div>
               
-              <div className="absolute top-8 left-8 right-8 flex justify-between items-center z-20">
+              {/* Camera Header Bar */}
+              <div className="absolute top-4 sm:top-6 left-4 sm:left-6 right-4 sm:right-6 flex justify-between items-center z-20 gap-2">
                 <button
+                  type="button"
                   onClick={() => {
                     stopCamera();
                     setCapturedPages([]);
                   }}
-                  className="p-4 rounded-full bg-black/40 backdrop-blur-md text-slate-400 hover:text-white transition-all border border-white/5"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-black/70 backdrop-blur-md text-slate-200 hover:text-white transition-all border border-white/10 text-xs font-mono font-bold hover:bg-black/90 shrink-0"
+                  title="Fermer la caméra et revenir à l'accueil"
                 >
-                  <X className="w-6 h-6" />
+                  <ArrowLeft className="w-4 h-4 text-teal-400" />
+                  <span className="hidden sm:inline">Retour</span>
                 </button>
 
-                <div className="flex items-center gap-2">
-                  <div className="bg-teal-500 text-black px-5 py-2 rounded-full font-bold text-[12px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(20,184,166,0.4)]">
-                     Document • Page {capturedPages.length + 1}
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <div className="bg-teal-500 text-black px-3.5 sm:px-4 py-1.5 rounded-full font-bold text-[10px] sm:text-[11px] uppercase tracking-wider shadow-[0_0_20px_rgba(20,184,166,0.4)] whitespace-nowrap">
+                     Page {capturedPages.length + 1}
                   </div>
 
                   <button
                     onClick={() => setShowGridOverlay(!showGridOverlay)}
-                    className={`p-2.5 rounded-full backdrop-blur-md border border-white/10 transition-colors ${
-                      showGridOverlay ? "bg-teal-500/30 text-teal-300" : "bg-black/40 text-slate-400"
+                    className={`p-2 sm:p-2.5 rounded-full backdrop-blur-md border border-white/10 transition-colors ${
+                      showGridOverlay ? "bg-teal-500/30 text-teal-300" : "bg-black/60 text-slate-400"
                     }`}
                     title="Activer/Désactiver la grille de cadrage"
                   >
-                    <Grid className="w-5 h-5" />
+                    <Grid className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                  </button>
+
+                  <button
+                    onClick={toggleNightMode}
+                    className={`p-2 sm:p-2.5 rounded-full backdrop-blur-md border transition-all ${
+                      isNightModeEnhance 
+                        ? "bg-indigo-500 text-white border-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.6)]" 
+                        : "bg-black/60 text-slate-400 border-white/10 hover:text-white"
+                    }`}
+                    title={isNightModeEnhance ? "Mode Nuit activé (Rehaussement basse lumière)" : "Activer le Mode Nuit (Basse lumière)"}
+                  >
+                    <Moon className={`w-4 h-4 sm:w-4.5 sm:h-4.5 ${isNightModeEnhance ? "fill-white" : ""}`} />
                   </button>
                 </div>
 
-                {hasTorch ? (
-                  <button
-                    onClick={toggleFlash}
-                    className={`p-4 rounded-full backdrop-blur-md transition-all border border-white/5 ${
-                      isFlashOn ? "bg-teal-500 text-black shadow-[0_0_20px_rgba(20,184,166,0.5)]" : "bg-black/40 text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    <Zap className={`w-6 h-6 ${isFlashOn ? "fill-current" : ""}`} />
-                  </button>
-                ) : (
-                  <div className="w-14" />
-                )}
+                {/* Night Flash & Torch Button */}
+                <button
+                  type="button"
+                  onClick={toggleFlash}
+                  className={`p-2.5 sm:p-3 rounded-full backdrop-blur-md transition-all border shrink-0 ${
+                    isFlashOn || isScreenTorchOn 
+                      ? "bg-amber-400 text-black border-amber-300 shadow-[0_0_25px_rgba(251,191,36,0.8)] scale-105" 
+                      : "bg-black/60 text-slate-300 hover:text-white border-white/10"
+                  }`}
+                  title={
+                    hasTorch 
+                      ? (isFlashOn ? "Éteindre le Flash Torche" : "Allumer le Flash Torche (Nuit)")
+                      : (isScreenTorchOn ? "Éteindre le Flash Écran" : "Allumer le Flash Écran Nocturne")
+                  }
+                >
+                  <Zap className={`w-4 h-4 sm:w-5 sm:h-5 ${isFlashOn || isScreenTorchOn ? "fill-current animate-pulse" : ""}`} />
+                </button>
               </div>
               
               <div className="absolute top-24 left-0 right-0 px-4 flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
@@ -712,13 +912,14 @@ export default function Scanner({ onImagesCaptured, onTextCaptured, selectedLang
           setCapturedPages(processedPages);
           setShowEditorModal(false);
         }}
+        selectedLanguage={selectedLanguage}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-10 border-t border-white/5">
         {[
-          { title: "Précision Optique", desc: "Analyse Vectorielle 4K", stat: "98.4%" },
-          { title: "Moteur Cognitif", desc: "Transcription Cursive IA", stat: "Ultra-Rapide" },
-          { title: "Standard Sécurité", desc: "Chiffrement Cloud de Bout en Bout", stat: "AES-256" }
+          { title: t.scanner.hdCamera, desc: t.scanner.autoCropHd, stat: "98.4%" },
+          { title: t.scanner.handwritingOcr, desc: t.scanner.autoDetectEnabled, stat: "Ultra-HD" },
+          { title: t.scanner.dataProtection, desc: t.scanner.secureImport, stat: "AES-256" }
         ].map((item, idx) => (
           <div key={idx} className="flex gap-4 items-start">
             <div className="w-1.5 h-1.5 bg-teal-500 rounded-full mt-1 animate-pulse" />

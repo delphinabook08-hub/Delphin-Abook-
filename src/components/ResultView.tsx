@@ -4,12 +4,15 @@ import {
   Share2, RotateCcw, Trash2, X, Download, Sparkles, Undo2,
   Send, Mail, MessageSquare, Printer, CheckCircle2, ExternalLink,
   Languages, Volume2, VolumeX, Play, Pause, Square, BookOpen,
-  ListChecks, ArrowRight, RefreshCw, Layers
+  ListChecks, ArrowRight, ArrowLeft, RefreshCw, Layers,
+  AlignLeft, AlignCenter, AlignJustify, Type, SlidersHorizontal,
+  WrapText, Palette, Bold, Baseline
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import confetti from "canvas-confetti";
 import { TranscriptionResult } from "../lib/gemini";
 import { sanitizeAndFixAlurConjugation } from "../lib/alurConjugation";
+import { unwrapLinesExceptParagraphs } from "../lib/textUtils";
 import { Document, Packer, Paragraph, TextRun, PageBreak } from "docx";
 import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
@@ -24,6 +27,7 @@ interface ResultViewProps {
   onReset: () => void;
   activeTab?: "ocr" | "voice";
   selectedLanguage?: string;
+  theme?: "dark" | "light";
 }
 
 async function safeJsonFetch<T = any>(response: Response, defaultErrorMsg: string): Promise<T> {
@@ -34,16 +38,29 @@ async function safeJsonFetch<T = any>(response: Response, defaultErrorMsg: strin
     trimmed.startsWith("<!doctype") || 
     trimmed.startsWith("<html") || 
     trimmed.includes("Please wait while your application starts") ||
-    trimmed.includes("Starting Server")
+    trimmed.includes("Starting Server") ||
+    trimmed.includes("503 Service Unavailable") ||
+    trimmed.includes("504 Gateway")
   ) {
-    throw new Error("Le serveur est en cours de démarrage. Veuillez patienter un instant et réessayer.");
+    if (response.status === 503 || trimmed.includes("503") || trimmed.includes("high demand") || trimmed.includes("UNAVAILABLE")) {
+      throw new Error("Les serveurs d'IA sont temporairement très sollicités. Veuillez relancer l'action dans quelques secondes.");
+    }
+    throw new Error("Le serveur est en cours de synchronisation. Veuillez patienter un instant et réessayer.");
   }
 
   if (!response.ok) {
     let errDetail = defaultErrorMsg;
     try {
       const parsed = JSON.parse(trimmed);
-      if (parsed && parsed.error) errDetail = parsed.error;
+      if (parsed && parsed.error) {
+        errDetail = parsed.error;
+        try {
+          const nested = JSON.parse(errDetail);
+          if (nested?.error?.message) {
+            errDetail = nested.error.message;
+          }
+        } catch (_) {}
+      }
     } catch (_) {}
     throw new Error(errDetail);
   }
@@ -55,7 +72,8 @@ async function safeJsonFetch<T = any>(response: Response, defaultErrorMsg: strin
   }
 }
 
-export default function ResultView({ images, result, onReset, activeTab, selectedLanguage }: ResultViewProps) {
+export default function ResultView({ images, result, onReset, activeTab, selectedLanguage, theme = "dark" }: ResultViewProps) {
+  const isDark = theme !== "light";
   const t = getTranslations(selectedLanguage || "French");
   const [editableText, setEditableText] = useState(result.text);
 
@@ -81,10 +99,19 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [pendingFormat, setPendingFormat] = useState<"word" | "pdf" | "excel" | null>(null);
 
-  // States for automatic AI formatting
+  // States for automatic AI formatting & Typographic layout
   const [isFormatMenuOpen, setIsFormatMenuOpen] = useState(false);
   const [isFormatting, setIsFormatting] = useState(false);
   const [previousTexts, setPreviousTexts] = useState<string[]>([]);
+  const [textSize, setTextSize] = useState<"sm" | "base" | "lg" | "xl">("lg");
+  const [lineSpacing, setLineSpacing] = useState<"normal" | "relaxed" | "loose">("relaxed");
+  const [textAlign, setTextAlign] = useState<"left" | "center" | "justify">("left");
+  
+  // Custom Typography & Text Color Presets (Couleur des écrits & Mise en forme)
+  const [fontFamily, setFontFamily] = useState<"sans" | "serif" | "mono">("sans");
+  const [isBold, setIsBold] = useState(false);
+  const [textColor, setTextColor] = useState<"default" | "high-contrast" | "slate" | "emerald" | "indigo" | "sepia">("default");
+  const [isColorMenuOpen, setIsColorMenuOpen] = useState(false);
 
   // States for Direct Send / Numérisation & Envoi Direct
   const [isDirectSendOpen, setIsDirectSendOpen] = useState(false);
@@ -359,6 +386,18 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
     const prevText = previousTexts[previousTexts.length - 1];
     setEditableText(prevText);
     setPreviousTexts(prev => prev.slice(0, prev.length - 1));
+  };
+
+  const handleUnwrapLinesOnly = () => {
+    if (!editableText) return;
+    const unwrapped = unwrapLinesExceptParagraphs(editableText);
+    setPreviousTexts(prev => [...prev, editableText]);
+    setEditableText(unwrapped);
+    confetti({
+      particleCount: 70,
+      spread: 60,
+      colors: ["#14b8a6", "#38bdf8", "#ffffff"]
+    });
   };
 
   const copyToClipboard = () => {
@@ -983,29 +1022,38 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
       </AnimatePresence>
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div className="flex items-center gap-4">
-          <button onClick={onReset} className="p-2 hover:bg-white/5 rounded-full text-slate-400 transition-colors">
-            <RotateCcw className="w-5 h-5" />
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={onReset} 
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl ${
+              isDark 
+                ? "bg-zinc-900/90 hover:bg-teal-500/20 text-slate-300 hover:text-teal-300 border-white/10 hover:border-teal-500/40" 
+                : "bg-white hover:bg-teal-50 text-slate-700 hover:text-teal-700 border-slate-200 hover:border-teal-300 shadow-sm"
+            } border transition-all text-xs font-bold font-mono group shadow-lg`}
+            title="Retourner au Scanner"
+          >
+            <ArrowLeft className="w-4 h-4 text-teal-500 group-hover:-translate-x-1 transition-transform" />
+            <span>Retour</span>
           </button>
           <div className="space-y-1">
             <input 
               type="text"
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
-              className="text-xl font-display font-light text-white bg-transparent border-none outline-none focus:ring-1 focus:ring-teal-500/50 rounded-lg px-2"
+              className={`text-xl font-display font-light ${isDark ? "text-white" : "text-slate-900"} bg-transparent border-none outline-none focus:ring-1 focus:ring-teal-500/50 rounded-lg px-2`}
             />
             <div className="flex items-center gap-2 px-2 flex-wrap">
-              <span className="text-[8px] uppercase font-mono text-slate-500 tracking-widest">{wordCount} mots</span>
-              <div className="w-1 h-1 bg-slate-700 rounded-full" />
-              <div className="flex items-center gap-1.5 text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
-                <Layers className="w-3 h-3 text-teal-400" />
+              <span className={`text-[8px] uppercase font-mono ${isDark ? "text-slate-500" : "text-slate-400"} tracking-widest`}>{wordCount} mots</span>
+              <div className={`w-1 h-1 ${isDark ? "bg-slate-700" : "bg-slate-300"} rounded-full`} />
+              <div className={`flex items-center gap-1.5 ${isDark ? "text-teal-400 bg-teal-500/10 border-teal-500/20" : "text-teal-800 bg-teal-50 border-teal-200"} px-2 py-0.5 rounded-full border`}>
+                <Layers className="w-3 h-3 text-teal-500" />
                 <span className="text-[8px] uppercase font-mono tracking-widest font-bold">
                   {images.length > 1 ? `Dossier Multi-Pages (${images.length} pages)` : "Document Unique"}
                 </span>
               </div>
-              <div className="w-1 h-1 bg-slate-700 rounded-full" />
-              <div className={`flex items-center gap-1.5 ${isEditing ? "text-teal-400" : "text-slate-500"}`}>
-                <div className={`w-1 h-1 rounded-full ${isEditing ? "bg-teal-400 animate-pulse" : "bg-slate-700"}`} />
+              <div className={`w-1 h-1 ${isDark ? "bg-slate-700" : "bg-slate-300"} rounded-full`} />
+              <div className={`flex items-center gap-1.5 ${isEditing ? "text-teal-500" : (isDark ? "text-slate-500" : "text-slate-400")}`}>
+                <div className={`w-1 h-1 rounded-full ${isEditing ? "bg-teal-400 animate-pulse" : (isDark ? "bg-slate-700" : "bg-slate-300")}`} />
                 <span className="text-[8px] uppercase font-mono tracking-widest font-bold">
                   {isEditing ? "Mode Édition" : "Mode Lecture OCR"}
                 </span>
@@ -1031,7 +1079,7 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
               className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
                 isFormatMenuOpen || isFormatting
                 ? "bg-teal-500 text-black shadow-[0_0_20px_rgba(20,184,166,0.4)]" 
-                : "bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/30"
+                : (isDark ? "bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/30" : "bg-teal-50 border border-teal-300 text-teal-800 hover:bg-teal-100")
               }`}
             >
               <Sparkles className={`w-4 h-4 ${isFormatting ? "animate-spin" : "animate-pulse"}`} />
@@ -1046,47 +1094,69 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
                       initial={{ opacity: 0, y: 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute right-0 mt-2 w-72 bg-zinc-900 border border-white/10 rounded-2xl p-4 shadow-2xl z-50 space-y-2.5 text-left"
+                      className={`absolute right-0 mt-2 w-72 ${isDark ? "bg-zinc-900 border-white/10" : "bg-white border-slate-200 shadow-2xl"} border rounded-2xl p-4 shadow-2xl z-50 space-y-2.5 text-left`}
                     >
-                      <div className="pb-2 border-b border-white/5">
-                        <h4 className="text-[10px] uppercase tracking-widest font-bold text-teal-400 font-sans">Mettre en forme automatiquement</h4>
-                        <p className="text-[9px] text-slate-400 leading-normal">Optimisez le texte de votre scan par l'IA</p>
+                      <div className={`pb-2 border-b ${isDark ? "border-white/5" : "border-slate-100"}`}>
+                        <h4 className="text-[10px] uppercase tracking-widest font-bold text-teal-500 font-sans">Mettre en forme automatiquement</h4>
+                        <p className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-500"} leading-normal`}>Optimisez la présentation de vos écrits par l'IA</p>
                       </div>
 
                       <button
-                        onClick={() => handleAIFormatting("standard")}
-                        className="w-full text-left p-2 hover:bg-white/5 rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent"
+                        onClick={() => {
+                          handleUnwrapLinesOnly();
+                          setIsFormatMenuOpen(false);
+                        }}
+                        className={`w-full text-left p-2.5 ${isDark ? "bg-teal-500/10 hover:bg-teal-500/20 border-teal-500/30" : "bg-teal-50 hover:bg-teal-100 border-teal-200"} border rounded-xl transition-all flex flex-col items-start gap-0.5`}
                       >
-                        <span className="text-xs text-white font-medium">Standard (Aéré & Propre)</span>
-                        <span className="text-[9px] text-slate-400">Paragraphes fluides, correction orthographique robuste</span>
+                        <div className={`flex items-center gap-1.5 text-xs ${isDark ? "text-teal-300" : "text-teal-800"} font-bold`}>
+                          <WrapText className="w-3.5 h-3.5 text-teal-500" />
+                          <span>Supprimer sauts de ligne (Paragraphes purs)</span>
+                        </div>
+                        <span className={`text-[9px] ${isDark ? "text-slate-300" : "text-slate-600"}`}>Fusionne les retours à la ligne intempestifs en phrases continues, préserve uniquement les vrais paragraphes</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleAIFormatting("standard")}
+                        className={`w-full text-left p-2 ${isDark ? "hover:bg-white/5" : "hover:bg-slate-100"} rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent`}
+                      >
+                        <span className={`text-xs ${isDark ? "text-white" : "text-slate-900"} font-medium`}>Standard (Aéré & Propre)</span>
+                        <span className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Paragraphes fluides, correction orthographique robuste</span>
                       </button>
 
                       <button
                         onClick={() => handleAIFormatting("bullets")}
-                        className="w-full text-left p-2 hover:bg-white/5 rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent"
+                        className={`w-full text-left p-2 ${isDark ? "hover:bg-white/5" : "hover:bg-slate-100"} rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent`}
                       >
-                        <span className="text-xs text-white font-medium">Liste à puces logique</span>
-                        <span className="text-[9px] text-slate-400">Convertit le texte en points clés et tirets lisibles</span>
+                        <span className={`text-xs ${isDark ? "text-white" : "text-slate-900"} font-medium`}>Liste à puces logique</span>
+                        <span className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Convertit le texte en points clés et tirets lisibles</span>
                       </button>
 
                       <button
                         onClick={() => handleAIFormatting("resume")}
-                        className="w-full text-left p-2 hover:bg-white/5 rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent"
+                        className={`w-full text-left p-2 ${isDark ? "hover:bg-white/5" : "hover:bg-slate-100"} rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent`}
                       >
-                        <span className="text-xs text-white font-medium">Structure Rapport / Synthèse</span>
-                        <span className="text-[9px] text-slate-400">Ajout d'en-têtes, divisions claires et sections</span>
+                        <span className={`text-xs ${isDark ? "text-white" : "text-slate-900"} font-medium`}>Structure Rapport / Synthèse</span>
+                        <span className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Ajout d'en-têtes, divisions claires et sections</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleAIFormatting("paragraphs")}
+                        className={`w-full text-left p-2 ${isDark ? "hover:bg-white/5" : "hover:bg-slate-100"} rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent`}
+                      >
+                        <span className={`text-xs ${isDark ? "text-white" : "text-slate-900"} font-medium`}>Paragraphes & Espacement Aéré</span>
+                        <span className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Découpage net en paragraphes distincts avec double interligne</span>
                       </button>
 
                       <button
                         onClick={() => handleAIFormatting("formal")}
-                        className="w-full text-left p-2 hover:bg-white/5 rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent"
+                        className={`w-full text-left p-2 ${isDark ? "hover:bg-white/5" : "hover:bg-slate-100"} rounded-xl transition-all flex flex-col items-start gap-0.5 bg-transparent`}
                       >
-                        <span className="text-xs text-white font-medium">Courrier & E-mail Formel</span>
-                        <span className="text-[9px] text-slate-400">S'adapte au format lettre officielle polie</span>
+                        <span className={`text-xs ${isDark ? "text-white" : "text-slate-900"} font-medium`}>Courrier & E-mail Formel</span>
+                        <span className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>S'adapte au format lettre officielle polie</span>
                       </button>
                       
-                      <div className="pt-2 text-center border-t border-white/5">
-                        <span className="text-[7px] uppercase tracking-widest font-mono text-slate-500">AbookScan AI Auto-formatting</span>
+                      <div className={`pt-2 text-center border-t ${isDark ? "border-white/5" : "border-slate-100"}`}>
+                        <span className={`text-[7px] uppercase tracking-widest font-mono ${isDark ? "text-slate-500" : "text-slate-400"}`}>AbookScan AI Auto-formatting</span>
                       </div>
                     </motion.div>
                   </>
@@ -1097,20 +1167,20 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
           {/* FEATURE 3: Traduction Instantanée IA Button */}
           <button
             onClick={() => setIsTranslateOpen(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-500 hover:text-white transition-all shadow-md"
+            className={`flex items-center gap-2 px-5 py-2.5 ${isDark ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500 hover:text-white" : "bg-indigo-50 border-indigo-300 text-indigo-800 hover:bg-indigo-600 hover:text-white"} border rounded-full text-[10px] font-bold uppercase tracking-widest transition-all shadow-md`}
             title="Traduire le document numérisé en d'autres langues"
           >
-            <Languages className="w-4 h-4 text-indigo-400" />
+            <Languages className="w-4 h-4 text-indigo-500" />
             <span>Traduire IA</span>
           </button>
 
           {/* FEATURE 4: Résumé Exécutif & Points Clés Button */}
           <button
             onClick={handleGenerateSummary}
-            className="flex items-center gap-2 px-5 py-2.5 bg-teal-500/15 border border-teal-500/30 text-teal-300 rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-teal-500 hover:text-black transition-all shadow-md"
+            className={`flex items-center gap-2 px-5 py-2.5 ${isDark ? "bg-teal-500/15 border-teal-500/30 text-teal-300 hover:bg-teal-500 hover:text-black" : "bg-teal-50 border-teal-300 text-teal-800 hover:bg-teal-500 hover:text-white"} border rounded-full text-[10px] font-bold uppercase tracking-widest transition-all shadow-md`}
             title="Générer un résumé synthétique du document"
           >
-            <BookOpen className="w-4 h-4 text-teal-400" />
+            <BookOpen className="w-4 h-4 text-teal-500" />
             <span>Résumé IA</span>
           </button>
 
@@ -1119,16 +1189,16 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
             className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
               isEditing 
               ? "bg-teal-500 text-black shadow-[0_0_20px_rgba(20,184,166,0.3)]" 
-              : "bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10"
+              : (isDark ? "bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10" : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm")
             }`}
           >
             {isEditing ? <Check className="w-4 h-4" /> : <Edit2 className="w-4 h-4" />}
             {isEditing ? "Terminer" : "Éditer"}
           </button>
-          <div className="w-px h-10 bg-white/10 mx-1" />
+          <div className={`w-px h-10 ${isDark ? "bg-white/10" : "bg-slate-200"} mx-1`} />
           <button 
             onClick={copyToClipboard} 
-            className="flex items-center gap-2 px-6 py-2.5 bg-white/5 border border-white/10 text-slate-300 rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all"
+            className={`flex items-center gap-2 px-6 py-2.5 ${isDark ? "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm"} border rounded-full text-[10px] font-bold uppercase tracking-widest transition-all`}
           >
             {isCopied ? <Check className="w-4 h-4 text-teal-500" /> : <Copy className="w-4 h-4" />}
             {isCopied ? "Copié" : "Copier"}
@@ -1173,8 +1243,8 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
         <div className={`flex flex-col gap-6 transition-all duration-500 ${isEditing ? "lg:col-span-12" : "lg:col-span-8"}`}>
           <div className={`flex-1 overflow-hidden flex flex-col relative transition-all duration-300 ${
             isEditing 
-            ? "bg-zinc-950 border-2 border-teal-500/30 rounded-[2.5rem] shadow-[0_0_50px_rgba(20,184,166,0.1)]" 
-            : "bg-zinc-900 shadow-xl border border-white/5 rounded-3xl"
+            ? (isDark ? "bg-zinc-950 border-2 border-teal-500/30 rounded-[2.5rem] shadow-[0_0_50px_rgba(20,184,166,0.1)]" : "bg-white border-2 border-teal-500/40 rounded-[2.5rem] shadow-2xl")
+            : (isDark ? "bg-zinc-900 shadow-xl border border-white/5 rounded-3xl" : "bg-white shadow-xl border border-slate-200 rounded-3xl")
           }`}>
             <AnimatePresence>
               {isFormatting && (
@@ -1198,16 +1268,16 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
               )}
             </AnimatePresence>
 
-            {/* FEATURE: View Mode Switcher - Texte vs Tableau Éditable */}
-            <div className="px-6 py-3 border-b border-white/10 bg-slate-950/70 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 bg-black/50 p-1 rounded-xl border border-white/10">
+            {/* FEATURE: View Mode Switcher & Formatting Controls */}
+            <div className={`px-6 py-3 border-b ${isDark ? "border-white/10 bg-slate-950/70" : "border-slate-200 bg-slate-50/90"} flex flex-wrap items-center justify-between gap-3 text-xs`}>
+              <div className={`flex items-center gap-2 ${isDark ? "bg-black/50 border-white/10" : "bg-slate-200/70 border-slate-300"} p-1 rounded-xl border`}>
                 <button
                   type="button"
                   onClick={() => setActiveViewMode("text")}
                   className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
                     activeViewMode === "text"
                       ? "bg-teal-500 text-black shadow-md shadow-teal-500/20"
-                      : "text-slate-400 hover:text-white"
+                      : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900")
                   }`}
                 >
                   <FileText className="w-3.5 h-3.5" />
@@ -1234,47 +1304,205 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
                   className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
                     activeViewMode === "table"
                       ? "bg-teal-500 text-black shadow-md shadow-teal-500/20"
-                      : "text-slate-400 hover:text-white"
+                      : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900")
                   }`}
                 >
                   <TableIcon className="w-3.5 h-3.5" />
                   <span>Vue Tableau Éditable</span>
                   {tableData && tableData.length > 0 && (
-                    <span className="px-1.5 py-0.5 bg-black/40 text-[10px] text-teal-300 font-mono rounded-full border border-teal-500/30">
+                    <span className={`px-1.5 py-0.5 ${isDark ? "bg-black/40 text-teal-300 border-teal-500/30" : "bg-teal-100 text-teal-800 border-teal-300"} text-[10px] font-mono rounded-full border`}>
                       {tableData.length - 1}L
                     </span>
                   )}
                 </button>
               </div>
 
-              {tableData && tableData.length > 0 && (
-                <div className="flex items-center gap-2 text-teal-300 bg-teal-500/10 px-3 py-1.5 rounded-xl border border-teal-500/20 font-medium text-[11px]">
-                  <Sparkles className="w-3.5 h-3.5 text-teal-400" />
-                  <span>Tableau IA : {tableData.length - 1} lignes × {tableData[0]?.length || 0} colonnes</span>
-                </div>
-              )}
-            </div>
+              {activeViewMode === "text" ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Font Family (Sans, Serif, Mono) */}
+                  <div className={`flex items-center gap-1 ${isDark ? "bg-black/40 border-white/10" : "bg-white border-slate-200 shadow-sm"} p-1 rounded-xl border`} title="Police d'écriture">
+                    {(["sans", "serif", "mono"] as const).map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => setFontFamily(f)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                          fontFamily === f ? "bg-teal-500 text-black" : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900")
+                        } ${f === "serif" ? "font-serif" : f === "mono" ? "font-mono" : "font-sans"}`}
+                      >
+                        {f === "sans" ? "Sans" : f === "serif" ? "Sérif" : "Mono"}
+                      </button>
+                    ))}
+                  </div>
 
-            <div className="flex-1 overflow-y-auto no-scrollbar p-6 min-h-[350px]">
-              {activeViewMode === "table" && tableData && tableData.length > 0 ? (
-                <TableView
-                  initialData={tableData}
-                  onDataChange={(newData) => setTableData(newData)}
-                  fileName={fileName}
-                  isEditable={true}
-                />
-              ) : isEditing ? (
-                <textarea
-                  value={editableText}
-                  onChange={(e) => setEditableText(e.target.value)}
-                  className="w-full h-full bg-transparent text-white font-light text-xl leading-relaxed outline-none resize-none placeholder:text-zinc-700 min-h-[320px]"
-                  placeholder="Commencez à éditer votre texte ici..."
-                  autoFocus
-                />
-              ) : (
-                <div className="text-slate-200 font-light text-lg leading-relaxed whitespace-pre-wrap selection:bg-teal-500/30 min-h-[320px]">
-                  {editableText}
+                  {/* Bold Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setIsBold(!isBold)}
+                    className={`p-1.5 rounded-xl border transition-all ${
+                      isBold 
+                        ? "bg-teal-500 text-black border-teal-500 font-bold shadow-sm" 
+                        : (isDark ? "bg-black/40 border-white/10 text-slate-400 hover:text-white" : "bg-white border-slate-200 text-slate-600 hover:text-slate-900 shadow-sm")
+                    }`}
+                    title="Texte en gras pour une lisibilité accrue"
+                  >
+                    <Bold className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Text Color / Contraste des écrits */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsColorMenuOpen(!isColorMenuOpen)}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-[10px] font-bold uppercase tracking-wider transition-all ${
+                        isColorMenuOpen || textColor !== "default"
+                          ? "bg-teal-500 text-black border-teal-400 shadow-sm"
+                          : (isDark ? "bg-black/40 border-white/10 text-slate-300 hover:text-white" : "bg-white border-slate-200 text-slate-700 hover:text-slate-900 shadow-sm")
+                      }`}
+                      title="Couleur et contraste du texte"
+                    >
+                      <Palette className="w-3.5 h-3.5" />
+                      <span>Couleur</span>
+                    </button>
+
+                    <AnimatePresence>
+                      {isColorMenuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setIsColorMenuOpen(false)} />
+                          <motion.div
+                            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                            className={`absolute right-0 mt-2 w-56 ${isDark ? "bg-zinc-900 border-white/10 text-white" : "bg-white border-slate-200 text-slate-900 shadow-2xl"} border rounded-2xl p-3 shadow-2xl z-50 space-y-1.5`}
+                          >
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-teal-500 pb-1 border-b border-white/5">
+                              Couleur des écrits
+                            </div>
+                            
+                            <button
+                              onClick={() => { setTextColor("default"); setIsColorMenuOpen(false); }}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-all ${textColor === "default" ? "bg-teal-500/20 text-teal-400 font-bold" : (isDark ? "hover:bg-white/5 text-slate-300" : "hover:bg-slate-100 text-slate-700")}`}
+                            >
+                              <span>Standard Adaptatif</span>
+                              <div className={`w-3.5 h-3.5 rounded-full ${isDark ? "bg-slate-200" : "bg-slate-800"}`} />
+                            </button>
+
+                            <button
+                              onClick={() => { setTextColor("high-contrast"); setIsColorMenuOpen(false); }}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-all ${textColor === "high-contrast" ? "bg-teal-500/20 text-teal-400 font-bold" : (isDark ? "hover:bg-white/5 text-slate-300" : "hover:bg-slate-100 text-slate-700")}`}
+                            >
+                              <span>Contraste Maximum</span>
+                              <div className={`w-3.5 h-3.5 rounded-full ${isDark ? "bg-white" : "bg-black"}`} />
+                            </button>
+
+                            <button
+                              onClick={() => { setTextColor("emerald"); setIsColorMenuOpen(false); }}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-all ${textColor === "emerald" ? "bg-teal-500/20 text-teal-400 font-bold" : (isDark ? "hover:bg-white/5 text-slate-300" : "hover:bg-slate-100 text-slate-700")}`}
+                            >
+                              <span>Émeraude / Vert</span>
+                              <div className="w-3.5 h-3.5 rounded-full bg-emerald-500" />
+                            </button>
+
+                            <button
+                              onClick={() => { setTextColor("indigo"); setIsColorMenuOpen(false); }}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-all ${textColor === "indigo" ? "bg-teal-500/20 text-teal-400 font-bold" : (isDark ? "hover:bg-white/5 text-slate-300" : "hover:bg-slate-100 text-slate-700")}`}
+                            >
+                              <span>Indigo / Bleu Royal</span>
+                              <div className="w-3.5 h-3.5 rounded-full bg-indigo-500" />
+                            </button>
+
+                            <button
+                              onClick={() => { setTextColor("sepia"); setIsColorMenuOpen(false); }}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-all ${textColor === "sepia" ? "bg-teal-500/20 text-teal-400 font-bold" : (isDark ? "hover:bg-white/5 text-slate-300" : "hover:bg-slate-100 text-slate-700")}`}
+                            >
+                              <span>Sépia / Confort Livre</span>
+                              <div className="w-3.5 h-3.5 rounded-full bg-amber-600" />
+                            </button>
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Font Size Selector */}
+                  <div className={`flex items-center gap-1 ${isDark ? "bg-black/40 border-white/10" : "bg-white border-slate-200 shadow-sm"} p-1 rounded-xl border`} title="Taille de la police">
+                    <Type className={`w-3.5 h-3.5 ${isDark ? "text-slate-400" : "text-slate-500"} ml-1.5`} />
+                    {(["sm", "base", "lg", "xl"] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setTextSize(s)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                          textSize === s ? "bg-teal-500 text-black" : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900")
+                        }`}
+                      >
+                        {s === "sm" ? "A-" : s === "base" ? "A" : s === "lg" ? "A+" : "A++"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Line Spacing / Interligne */}
+                  <div className={`flex items-center gap-1 ${isDark ? "bg-black/40 border-white/10" : "bg-white border-slate-200 shadow-sm"} p-1 rounded-xl border`} title="Espacement des lignes et paragraphes">
+                    {(["normal", "relaxed", "loose"] as const).map((spacing) => (
+                      <button
+                        key={spacing}
+                        type="button"
+                        onClick={() => setLineSpacing(spacing)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                          lineSpacing === spacing ? "bg-teal-500 text-black" : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900")
+                        }`}
+                      >
+                        {spacing === "normal" ? "1.0" : spacing === "relaxed" ? "1.5" : "2.0"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Text Alignment */}
+                  <div className={`flex items-center gap-1 ${isDark ? "bg-black/40 border-white/10" : "bg-white border-slate-200 shadow-sm"} p-1 rounded-xl border`} title="Alignement du texte">
+                    <button
+                      type="button"
+                      onClick={() => setTextAlign("left")}
+                      className={`p-1.5 rounded-lg transition-all ${textAlign === "left" ? "bg-teal-500 text-black" : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900")}`}
+                      title="Aligner à gauche"
+                    >
+                      <AlignLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTextAlign("center")}
+                      className={`p-1.5 rounded-lg transition-all ${textAlign === "center" ? "bg-teal-500 text-black" : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900")}`}
+                      title="Centrer le texte"
+                    >
+                      <AlignCenter className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTextAlign("justify")}
+                      className={`p-1.5 rounded-lg transition-all ${textAlign === "justify" ? "bg-teal-500 text-black" : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900")}`}
+                      title="Justifier le texte"
+                    >
+                      <AlignJustify className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Clean line breaks button (Keep only true paragraphs) */}
+                  <button
+                    type="button"
+                    onClick={handleUnwrapLinesOnly}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 ${isDark ? "bg-teal-500/10 border-teal-500/25 text-teal-300 hover:bg-teal-500 hover:text-black" : "bg-teal-50 border-teal-300 text-teal-800 hover:bg-teal-500 hover:text-white"} border rounded-xl text-[10px] font-bold tracking-wide transition-all shadow-sm group`}
+                    title="Supprimer les sauts de ligne intempestifs et conserver uniquement les vrais paragraphes"
+                  >
+                    <WrapText className="w-3.5 h-3.5 text-teal-500 group-hover:text-inherit transition-colors" />
+                    <span>Paragraphes Purs</span>
+                  </button>
                 </div>
+              ) : (
+                tableData && tableData.length > 0 && (
+                  <div className={`flex items-center gap-2 ${isDark ? "text-teal-300 bg-teal-500/10 border-teal-500/20" : "text-teal-800 bg-teal-50 border-teal-200"} px-3 py-1.5 rounded-xl border font-medium text-[11px]`}>
+                    <Sparkles className="w-3.5 h-3.5 text-teal-500" />
+                    <span>Tableau IA : {tableData.length - 1} lignes × {tableData[0]?.length || 0} colonnes</span>
+                  </div>
+                )
               )}
             </div>
 
@@ -1282,16 +1510,16 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
               <motion.div 
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
-                className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-6 py-3 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl z-10"
+                className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-6 py-3 ${isDark ? "bg-zinc-900 border-white/10" : "bg-white border-slate-200"} border rounded-2xl shadow-2xl z-10`}
               >
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-teal-500 rounded-full animate-pulse" />
                   <span className="text-[10px] uppercase font-bold tracking-widest text-teal-500">Sauvegarde automatique active</span>
                 </div>
-                <div className="w-px h-4 bg-white/10" />
+                <div className={`w-px h-4 ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
                 <button 
                   onClick={() => setIsEditing(false)}
-                  className="text-[10px] uppercase font-bold tracking-widest text-white hover:text-teal-400 transition-colors"
+                  className={`text-[10px] uppercase font-bold tracking-widest ${isDark ? "text-white hover:text-teal-400" : "text-slate-900 hover:text-teal-600"} transition-colors`}
                 >
                   Valider les modifications
                 </button>
@@ -1345,6 +1573,20 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
               <TableIcon className="w-4 h-4 text-teal-400 group-hover:text-black" />
               <span className="text-[10px] uppercase font-bold tracking-widest text-teal-400 group-hover:text-black">EXCEL</span>
             </button>
+          </div>
+
+          {/* Bottom Back / Vas-et-Viens navigation bar */}
+          <div className="pt-2 border-t border-white/5 flex flex-wrap items-center justify-between gap-3">
+            <button
+              onClick={onReset}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-zinc-900 hover:bg-teal-500/20 text-slate-300 hover:text-teal-300 border border-white/10 hover:border-teal-500/40 transition-all text-xs font-mono font-bold group shadow-md"
+            >
+              <ArrowLeft className="w-4 h-4 text-teal-400 group-hover:-translate-x-1 transition-transform" />
+              <span>Retourner au Scanner (Vas-et-viens)</span>
+            </button>
+            <span className="text-[10px] text-slate-500 font-mono">
+              💡 Astuce : Votre texte reste conservé lorsque vous revenez au scanner
+            </span>
           </div>
         </div>
       </div>

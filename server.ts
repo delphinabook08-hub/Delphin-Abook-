@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Stripe from "stripe";
 import dotenv from "dotenv";
-import { transcribeHandwriting, formatTranscriptionText, transcribeAudio, translateText, summarizeDocument } from "./src/lib/gemini";
+import { transcribeHandwriting, formatTranscriptionText, transcribeAudio, transcribeMultimodal, translateText, summarizeDocument } from "./src/lib/gemini";
 
 dotenv.config();
 
@@ -23,10 +23,48 @@ async function startServer() {
   app.use(express.json({ limit: "150mb" }));
   app.use(express.urlencoded({ limit: "150mb", extended: true }));
 
+  function formatApiErrorMessage(err: any, fallback: string): string {
+    if (!err) return fallback;
+    if (typeof err === "string") return err;
+    if (err.message) {
+      try {
+        const parsed = JSON.parse(err.message);
+        if (parsed?.error?.message) {
+          if (parsed.error.code === 503 || parsed.error.status === "UNAVAILABLE") {
+            return "Les serveurs d'IA sont temporairement très sollicités. Veuillez relancer l'analyse dans quelques secondes.";
+          }
+          return parsed.error.message;
+        }
+      } catch (_) {}
+      if (err.message.includes("503") || err.message.toLowerCase().includes("high demand") || err.message.toLowerCase().includes("unavailable")) {
+        return "Les serveurs d'IA sont temporairement très sollicités. Veuillez relancer l'analyse dans quelques secondes.";
+      }
+      return err.message;
+    }
+    return fallback;
+  }
+
   // API Route for Handwrited Script OCR Transcription via Gemini
   app.post("/api/transcribe", async (req, res) => {
-    const { base64Images, mimeType, language, rawScan } = req.body;
+    const { base64Images, mimeType, language, rawScan, audioBase64, audioMimeType } = req.body;
     
+    // If audio is also provided along with images, route seamlessly to multimodal transcription
+    if (audioBase64 && base64Images && Array.isArray(base64Images) && base64Images.length > 0) {
+      try {
+        const result = await transcribeMultimodal(
+          base64Images,
+          audioBase64,
+          audioMimeType || "audio/webm",
+          mimeType || "image/jpeg",
+          language || "French"
+        );
+        return res.json(result);
+      } catch (err: any) {
+        console.error("Gemini Multimodal Route Error:", err);
+        return res.status(500).json({ error: formatApiErrorMessage(err, "Échec de l'analyse multimodale par l'IA.") });
+      }
+    }
+
     if (!base64Images || (Array.isArray(base64Images) && base64Images.length === 0)) {
       return res.status(400).json({ error: "Aucune image n'a été fournie pour la transcription." });
     }
@@ -36,11 +74,37 @@ async function startServer() {
       res.json(result);
     } catch (err: any) {
       console.error("Gemini Transcription Route Error:", err);
-      res.status(500).json({ error: err.message || "Échec de l'analyse OCR par l'IA. Veuillez réessayer." });
+      res.status(500).json({ error: formatApiErrorMessage(err, "Échec de l'analyse OCR par l'IA. Veuillez réessayer.") });
     }
   });
 
-  // API Route for High-Quality Audio / Voice Transcription via Gemini 3.7 Flash
+  // API Route for Simultaneous Multimodal Transcription (Manuscript Photos + Audio Dictation)
+  app.post("/api/transcribe-multimodal", async (req, res) => {
+    const { base64Images, audioBase64, audioMimeType, mimeType, language } = req.body;
+
+    if (!base64Images || (Array.isArray(base64Images) && base64Images.length === 0)) {
+      return res.status(400).json({ error: "Aucune image de manuscrit n'a été fournie." });
+    }
+    if (!audioBase64) {
+      return res.status(400).json({ error: "Aucun fichier audio n'a été fourni." });
+    }
+
+    try {
+      const result = await transcribeMultimodal(
+        base64Images,
+        audioBase64,
+        audioMimeType || "audio/webm",
+        mimeType || "image/jpeg",
+        language || "French"
+      );
+      res.json(result);
+    } catch (err: any) {
+      console.error("Gemini Multimodal Transcription Route Error:", err);
+      res.status(500).json({ error: formatApiErrorMessage(err, "Échec de la transcription multimodale par l'IA.") });
+    }
+  });
+
+  // API Route for High-Quality Audio / Voice Transcription via Gemini 3.8 Flash
   app.post("/api/transcribe-audio", async (req, res) => {
     const { audioBase64, mimeType, language, promptMode } = req.body;
     
@@ -53,7 +117,7 @@ async function startServer() {
       res.json(result);
     } catch (err: any) {
       console.error("Gemini Audio Transcription Route Error:", err);
-      res.status(500).json({ error: err.message || "Échec de la transcription vocale. Veuillez réessayer." });
+      res.status(500).json({ error: formatApiErrorMessage(err, "Échec de la transcription vocale. Veuillez réessayer.") });
     }
   });
 
@@ -70,7 +134,7 @@ async function startServer() {
       res.json({ formattedText });
     } catch (err: any) {
       console.error("Gemini Formatting Route Error:", err);
-      res.status(500).json({ error: err.message || "Échec de la mise en forme de texte par l'IA. Veuillez réessayer." });
+      res.status(500).json({ error: formatApiErrorMessage(err, "Échec de la mise en forme de texte par l'IA. Veuillez réessayer.") });
     }
   });
 
@@ -85,7 +149,7 @@ async function startServer() {
       res.json({ translatedText });
     } catch (err: any) {
       console.error("Gemini Translation Route Error:", err);
-      res.status(500).json({ error: err.message || "Échec de la traduction par l'IA. Veuillez réessayer." });
+      res.status(500).json({ error: formatApiErrorMessage(err, "Échec de la traduction par l'IA. Veuillez réessayer.") });
     }
   });
 
@@ -100,7 +164,7 @@ async function startServer() {
       res.json(summaryData);
     } catch (err: any) {
       console.error("Gemini Summarization Route Error:", err);
-      res.status(500).json({ error: err.message || "Échec de la synthèse par l'IA. Veuillez réessayer." });
+      res.status(500).json({ error: formatApiErrorMessage(err, "Échec de la synthèse par l'IA. Veuillez réessayer.") });
     }
   });
 
@@ -136,6 +200,29 @@ async function startServer() {
       console.error("Stripe Error:", err);
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // PWA & Android TWA integration routes
+  app.get("/.well-known/assetlinks.json", (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.sendFile(path.join(process.cwd(), "public", ".well-known", "assetlinks.json"));
+  });
+
+  app.get("/manifest.json", (req, res) => {
+    res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
+    res.sendFile(path.join(process.cwd(), "public", "manifest.json"));
+  });
+
+  app.get("/twa-manifest.json", (req, res) => {
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.sendFile(path.join(process.cwd(), "public", "twa-manifest.json"));
+  });
+
+  app.get("/sw.js", (req, res) => {
+    res.setHeader("Content-Type", "application/javascript");
+    res.setHeader("Service-Worker-Allowed", "/");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(path.join(process.cwd(), "public", "sw.js"));
   });
 
   // Vite middleware for development

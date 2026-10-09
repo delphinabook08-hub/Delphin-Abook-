@@ -23,10 +23,12 @@
 
 .cloud-sphere {
   border-radius: 50%;
-  filter: blur(100px);
-  mix-blend-mode: screen;
-  animation: cloud-drift 20s ease-in-out infinite alternate;
+  filter: blur(60px);
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  pointer-events: none;
 }
+
 
 @layer base {
   body {

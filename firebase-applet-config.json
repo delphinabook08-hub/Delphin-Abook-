@@ -3,6 +3,7 @@
   "appId": "1:158134132296:web:3a2f7a35ab5b9c6ecb427d",
   "apiKey": "AIzaSyCFyMSkgSfMN_goY1vKF86ipwtShMffYzo",
   "authDomain": "spring-bricolage-dr6mz.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-abookscania-ad303af0-1f1b-45b7-9b1b-05a1377700d6",
   "storageBucket": "spring-bricolage-dr6mz.firebasestorage.app",
   "messagingSenderId": "158134132296",
   "measurementId": "",

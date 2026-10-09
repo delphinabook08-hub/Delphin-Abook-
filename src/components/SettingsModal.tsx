@@ -1,8 +1,9 @@
 import { motion, AnimatePresence } from "motion/react";
-import { X, Globe, History, Phone, Mail, Trash2, ShieldCheck, ExternalLink, Sun, Moon, Palette, RefreshCw, CheckCircle2, ArrowUpCircle } from "lucide-react";
+import { X, Globe, History, Phone, Mail, Trash2, ShieldCheck, ExternalLink, Sun, Moon, Palette, RefreshCw, CheckCircle2, ArrowUpCircle, BarChart3, Users } from "lucide-react";
 import { useState } from "react";
 import { getTranslations } from "../lib/translations";
 import { CURRENT_APP_VERSION, checkAppVersion, forceUpdateAndReload } from "../lib/versionManager";
+import { AppLogo } from "./AppLogo";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -21,6 +22,8 @@ interface SettingsModalProps {
   onThemeChange?: (theme: "dark" | "light") => void;
   isPro?: boolean;
   proExpiryDate?: string;
+  onOpenAdminStats?: () => void;
+  onOpenTwaGuide?: () => void;
 }
 
 export default function SettingsModal({
@@ -39,7 +42,9 @@ export default function SettingsModal({
   theme = "dark",
   onThemeChange,
   isPro = false,
-  proExpiryDate = ""
+  proExpiryDate = "",
+  onOpenAdminStats,
+  onOpenTwaGuide
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<"general" | "history">("general");
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
@@ -91,9 +96,12 @@ export default function SettingsModal({
             <div className={`p-6 border-b flex items-center justify-between ${
               theme === "light" ? "border-slate-200 bg-slate-50" : "border-white/5 bg-white/5"
             }`}>
-              <h2 className="text-sm font-display font-medium flex items-center gap-2">
-                {t.settings.title} <span className="text-[10px] text-teal-500 font-mono uppercase tracking-widest font-bold">v2.4</span>
-              </h2>
+              <div className="flex items-center gap-3">
+                <AppLogo size="md" />
+                <h2 className="text-sm font-display font-medium flex items-center gap-2">
+                  {t.settings.title} <span className="text-[10px] text-teal-500 font-mono uppercase tracking-widest font-bold">v{CURRENT_APP_VERSION}</span>
+                </h2>
+              </div>
               <button 
                 onClick={() => {
                   onClose();
@@ -256,7 +264,7 @@ export default function SettingsModal({
                   {/* Security & Confidentiality */}
                   <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-4`}>
                     <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
-                      Sécurité & Confidentialité
+                      {t.settings.zeroRetention} & {t.settings.screenProtect}
                     </label>
                     <div className="space-y-3">
                       {/* Zero retention toggle */}
@@ -298,10 +306,10 @@ export default function SettingsModal({
                       }`}>
                         <div className="space-y-0.5 text-left pr-4">
                           <span className={`block text-xs font-semibold ${theme === "light" ? "text-slate-900" : "text-white"}`}>
-                            Masquage Écran Récents
+                            {t.settings.screenProtect}
                           </span>
                           <span className={`block text-[8px] leading-relaxed font-light ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>
-                            Floute l'application quand elle perd le focus ou lors du changement d'application sur Android.
+                            {t.settings.screenProtectDesc}
                           </span>
                         </div>
                         <button
@@ -327,10 +335,10 @@ export default function SettingsModal({
                   <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-3`}>
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
-                        Version & Mises à Jour
+                        {t.settings.versionUpdates}
                       </label>
                       <span className="text-[9px] font-mono text-slate-400">
-                        Netlify Production
+                        {t.settings.netlifySync}
                       </span>
                     </div>
 
@@ -347,7 +355,7 @@ export default function SettingsModal({
                               AbookScan IA v{CURRENT_APP_VERSION}
                             </span>
                             <span className={`block text-[9px] font-light ${theme === "light" ? "text-slate-500" : "text-slate-400"}`}>
-                              Vérification automatique et synchronisation Netlify
+                              {t.settings.autoVerifyDesc}
                             </span>
                           </div>
                         </div>
@@ -363,18 +371,50 @@ export default function SettingsModal({
                           } disabled:opacity-60`}
                         >
                           <RefreshCw className={`w-3 h-3 ${isCheckingUpdate ? "animate-spin" : ""}`} />
-                          <span>{isCheckingUpdate ? "Vérification..." : "Vérifier"}</span>
+                          <span>{isCheckingUpdate ? t.settings.checkingBtn : t.settings.checkBtn}</span>
                         </button>
                       </div>
 
                       {updateStatusMsg && (
                         <div className={`text-[10px] p-2 rounded-lg flex items-center gap-1.5 ${
-                          updateStatusMsg.includes("à jour")
+                          updateStatusMsg.includes("à jour") || updateStatusMsg.includes("Up to date") || updateStatusMsg.includes("Aktuell")
                             ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                             : "bg-teal-500/10 text-teal-300 border border-teal-500/20"
                         }`}>
                           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                           <span>{updateStatusMsg}</span>
+                        </div>
+                      )}
+
+                      {onOpenTwaGuide && (
+                        <div className={`mt-3 p-3.5 rounded-2xl border ${theme === "light" ? "bg-slate-50 border-slate-200" : "bg-white/5 border-white/5"} flex items-center justify-between`}>
+                          <div className="flex items-center gap-3">
+                            <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-500">
+                              <ShieldCheck className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <span className={`block text-xs font-semibold ${theme === "light" ? "text-slate-900" : "text-white"}`}>
+                                Google Play Console (TWA)
+                              </span>
+                              <span className={`block text-[9px] font-light ${theme === "light" ? "text-slate-500" : "text-slate-400"}`}>
+                                Fichiers TWA & package AAB/APK prêts
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onOpenTwaGuide();
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
+                              theme === "light"
+                                ? "bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200"
+                                : "bg-teal-500/15 text-teal-300 hover:bg-teal-500/30 border border-teal-500/30"
+                            }`}
+                          >
+                            <span>Voir TWA</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -383,7 +423,7 @@ export default function SettingsModal({
                   {/* Support Channels */}
                   <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-4`}>
                     <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
-                      Canaux d'assistance
+                      {t.settings.support}
                     </label>
                     <div className="space-y-2">
                       <a 
@@ -399,7 +439,7 @@ export default function SettingsModal({
                         </div>
                         <div>
                           <span className={`block text-[8px] uppercase tracking-widest mb-0.5 ${theme === "light" ? "text-slate-500" : "text-slate-400"}`}>
-                            Téléphone Direct
+                            {t.settings.directPhone}
                           </span>
                           <span className={`text-xs font-mono font-medium ${theme === "light" ? "text-slate-900" : "text-white"}`}>
                             +243 811 339 303
@@ -423,7 +463,7 @@ export default function SettingsModal({
                         </div>
                         <div>
                           <span className={`block text-[8px] uppercase tracking-widest mb-0.5 ${theme === "light" ? "text-slate-500" : "text-slate-400"}`}>
-                            Email Support
+                            {t.settings.emailSupport}
                           </span>
                           <span className={`text-xs font-mono font-medium ${theme === "light" ? "text-slate-900" : "text-white"}`}>
                             supportabookscan@gmail.com
@@ -435,12 +475,52 @@ export default function SettingsModal({
                       </a>
                     </div>
                   </div>
+
+                  {/* Founder / Administrator Console */}
+                  {onOpenAdminStats && (
+                    <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-3`}>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold flex items-center gap-1.5">
+                          <BarChart3 className="w-3.5 h-3.5 text-teal-500" />
+                          <span>Console Fondateur & Statistiques</span>
+                        </label>
+                        <span className="text-[9px] font-mono text-slate-500 uppercase">PIN : 2026</span>
+                      </div>
+                      
+                      <button
+                        onClick={() => {
+                          onClose();
+                          onOpenAdminStats();
+                        }}
+                        className={`w-full p-3.5 rounded-xl border transition-all flex items-center justify-between group text-left ${
+                          theme === "light"
+                            ? "bg-teal-50/70 border-teal-200 hover:bg-teal-100/80 text-teal-950"
+                            : "bg-teal-500/10 border-teal-500/20 hover:bg-teal-500/20 text-white"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-teal-500 text-black">
+                            <Users className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="block text-xs font-bold font-sans">
+                              Voir le Nombre d'Utilisateurs & Scans
+                            </span>
+                            <span className="block text-[9px] font-mono text-slate-500 dark:text-slate-400">
+                              Données temps réel en direct de Firestore
+                            </span>
+                          </div>
+                        </div>
+                        <ExternalLink className="w-4 h-4 text-teal-500" />
+                      </button>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold">
-                      Archives Locales
+                      {t.settings.localArchives}
                     </label>
                     {isConfirmingClear ? (
                       <div className="flex items-center gap-3">
@@ -450,7 +530,7 @@ export default function SettingsModal({
                             theme === "light" ? "text-slate-500 hover:text-slate-900" : "text-slate-400 hover:text-white"
                           }`}
                         >
-                          Annuler
+                          {t.settings.cancel}
                         </button>
                         <button 
                           onClick={() => {
@@ -459,7 +539,7 @@ export default function SettingsModal({
                           }}
                           className="text-[8px] uppercase tracking-widest text-red-500 font-bold hover:text-red-600 transition-colors bg-red-500/10 px-2 py-1 rounded"
                         >
-                          Confirmer la suppression
+                          {t.settings.confirmClear}
                         </button>
                       </div>
                     ) : (
@@ -468,7 +548,7 @@ export default function SettingsModal({
                         disabled={history.length === 0}
                         className="text-[8px] uppercase tracking-widest text-red-500 hover:text-red-600 transition-colors disabled:opacity-20 flex items-center gap-1 group font-bold"
                       >
-                        <Trash2 className="w-3 h-3 group-hover:animate-shake" /> Tout supprimer
+                        <Trash2 className="w-3 h-3 group-hover:animate-shake" /> {t.settings.clearHistory}
                       </button>
                     )}
                   </div>
@@ -481,7 +561,7 @@ export default function SettingsModal({
                         <History className="w-8 h-8" />
                       </div>
                       <p className={`text-[10px] uppercase tracking-widest ${theme === "light" ? "text-slate-500" : "text-slate-400"}`}>
-                        Aucune archive détectée
+                        {t.settings.noArchives}
                       </p>
                     </div>
                   ) : (
@@ -534,7 +614,7 @@ export default function SettingsModal({
               <p className={`text-[8px] font-mono uppercase tracking-[0.3em] ${
                 theme === "light" ? "text-slate-500 font-semibold" : "text-slate-500"
               }`}>
-                Propulsé par AbookScan AI • RDC Kinshasa
+                {t.settings.poweredBy}
               </p>
             </div>
           </motion.div>

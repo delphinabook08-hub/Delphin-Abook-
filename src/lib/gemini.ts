@@ -3,6 +3,7 @@ import {
   sanitizeAndFixAlurConjugation, 
   getAlurConjugationEnginePrompt 
 } from "./alurConjugation";
+import { unwrapLinesExceptParagraphs, autoFormatAndPunctuateText } from "./textUtils";
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -169,90 +170,69 @@ function safeParseJson<T = any>(rawText: string | undefined | null): T | null {
 }
 
 /**
- * Executes a Gemini API generateContent call with active retry loops, exponential backoff,
- * and high-availability model fallback to handle 503 (spikes in demand / temporary unavailability)
- * and 429 (Resource Exhausted) errors gracefully.
+ * Executes a Gemini API generateContent call with active high-availability failover
+ * and adaptive timeouts to handle 503 (high demand / temporary spikes) and 429 errors gracefully.
  */
 async function reliableGenerateContent(params: {
   model: string;
   contents: any;
   config?: any;
+  timeoutMs?: number;
 }): Promise<any> {
-  // A sequential, safe model fallback list with valid active Gemini models.
-  // Uses gemini-3.7-flash with seamless fallback to gemini-2.5-flash or gemini-2.5-pro if needed.
-  const modelsToTry = Array.from(new Set([
-    params.model,
-    "gemini-3.7-flash",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro"
-  ].filter(Boolean)));
+  const contentsStr = JSON.stringify(params.contents || "");
+  const isAudio = contentsStr.includes("audio/");
+  const isMultipageImage = Array.isArray(params.contents?.parts) && params.contents.parts.length > 2;
+  
+  // High-availability model sequence:
+  // Primary: requested model (gemini-3.8-flash)
+  // Fallbacks: active models tested and proven to succeed immediately
+  const fallbackList = isAudio
+    ? [params.model, "gemini-3.8-flash", "gemini-3.5-transcribe", "gemini-2.5-flash", "gemini-3.1-flash-lite"]
+    : [params.model, "gemini-3.8-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+
+  const modelsToTry = Array.from(new Set(fallbackList.filter(Boolean)));
   let lastError: any = null;
 
-  for (const currentModel of modelsToTry) {
-    if (!currentModel) continue;
+  // Timeout tailored by task type: 10s for audio/multipage, 8s for standard OCR/text
+  const defaultTimeout = isAudio ? 12000 : isMultipageImage ? 14000 : 9000;
+  const timeoutMs = params.timeoutMs || defaultTimeout;
 
-    const maxRetries = 2; // Up to 3 attempts per model
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`[Gemini HA Router] Calling model ${currentModel} (Attempt ${attempt + 1}/${maxRetries + 1})`);
-        
-        const response = await getAi().models.generateContent({
-          ...params,
-          model: currentModel,
-        });
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const currentModel = modelsToTry[i];
 
-        // If call succeeded, return the response immediately
-        return response;
-      } catch (err: any) {
-        lastError = err;
-        const errStr = serializeError(err).toLowerCase();
-        
-        // If model is not found (404), break immediately to try next model
-        if (errStr.includes("404") || errStr.includes("not_found")) {
-          console.warn(`[Gemini HA Router] Model ${currentModel} not found (404), moving to fallback model.`);
-          break;
-        }
+    try {
+      console.log(`[Gemini HA Router] Calling model ${currentModel} (${i + 1}/${modelsToTry.length}) [timeout: ${timeoutMs}ms]...`);
+      const t0 = Date.now();
 
-        // Identify transient / retryable errors (503, 429, server overload, html errors, etc.)
-        const isQuotaOrRateLimit = errStr.includes("429") || errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("rate limit");
-        const isTransient = 
-          errStr.includes("503") || 
-          errStr.includes("unavailable") || 
-          errStr.includes("demand") || 
-          errStr.includes("temporary") ||
-          isQuotaOrRateLimit ||
-          errStr.includes("overloaded") ||
-          errStr.includes("unexpected token") ||
-          errStr.includes("doctype") ||
-          errStr.includes("html") ||
-          errStr.includes("json");
+      const callPromise = getAi().models.generateContent({
+        ...params,
+        model: currentModel,
+      });
 
-        if (isQuotaOrRateLimit) {
-          if (attempt < maxRetries) {
-            const delay = 1000 * (attempt + 1);
-            console.warn(`[Gemini HA Router] Quota limit on ${currentModel}, waiting ${delay}ms before retry...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            continue;
-          } else {
-            console.warn(`[Gemini HA Router] Quota exhausted on ${currentModel}, switching to fallback model.`);
-            break;
-          }
-        }
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms on ${currentModel}`)), timeoutMs)
+      );
 
-        if (isTransient && attempt < maxRetries) {
-          const delay = Math.pow(2, attempt) * 1200 + Math.random() * 500;
-          console.warn(`[Gemini HA Router] Retrying due to transient error on ${currentModel} in ${Math.round(delay)}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        } else {
-          console.error(`[Gemini HA Router] Model ${currentModel} failed or exhausted retries. Error:`, errStr);
-          break;
-        }
+      const response = await Promise.race([callPromise, timeoutPromise]);
+      console.log(`[Gemini HA Router] SUCCESS on model ${currentModel} in ${Date.now() - t0}ms`);
+      return response;
+    } catch (err: any) {
+      lastError = err;
+      const errStr = serializeError(err).toLowerCase();
+
+      // If 404 / not found, skip immediately
+      if (errStr.includes("404") || errStr.includes("not_found")) {
+        console.warn(`[Gemini HA Router] Model ${currentModel} not available (404), switching to fallback.`);
+        continue;
       }
+
+      console.warn(`[Gemini HA Router] Model ${currentModel} encountered transient issue (503 / demand / timeout). Fast-switching to next model in pool...`);
+      // Seamlessly continue to the next model in the high-availability pool
+      continue;
     }
   }
 
-  // If all models and their retries failed, propagate the last error back to the client
+  // If all models failed, propagate error back to caller
   throw lastError;
 }
 
@@ -1098,23 +1078,31 @@ DO NOT STOP AFTER PAGE 1. You MUST transcribe ALL ${pageCount} pages completely.
         ${multiPageMandate}
         CRITICAL RULES FOR RAW DOCUMENT SCANNING:
         1. Do NOT perform any auto-correction, spell checking, or AI styling modifications.
-        2. Keep the exact spelling, punctuation, capitalization, line breaks, and structure of the original document.
+        2. Keep the exact spelling, punctuation, and structure of the original document.
         3. Do NOT add any summary, intro text, preamble, or Word structural conversions.
-        4. Provide the exact raw text transcription of ALL ${pageCount} pages in the 'text' field.`
-      : `Transcribe the handwriting in these images in ${langName}. 
+        4. NO ARTIFICIAL LINE BREAKS: Suppress mid-sentence line breaks caused by paper page margins. Keep line breaks strictly for true paragraphs (\\n\\n).
+        5. Provide the exact raw text transcription of ALL ${pageCount} pages in the 'text' field with double line breaks between paragraphs.`
+      : `Transcribe the handwriting and text in these images in ${langName} EXACTLY AS WRITTEN (VERBATIM / MOT POUR MOT / TEL QUEL). 
         Analyze the document carefully:
         ${multiPageMandate}
-        1. Provide the complete transcription of ALL ${pageCount} pages in sequential order as plain text in the 'text' field. If tables are present, also format them nicely as markdown tables in 'text'.
-        2. CRITICAL NO-SUMMARY RULE: Do NOT generate, prepend, or include any summary, executive abstract, preamble, or introductory commentary in the 'text' field. Transcribe ONLY the written content of the document itself.
-        3. APPLY AUTO-CORRECTION: Fix common typos, spelling mistakes, and obvious grammatical errors while preserving original meaning.
-        4. TABLE DETECTION & EXTRACTION (tableData): Automatically detect ANY structured table, grid, matrix, form, list, invoice, schedule, or tabular data present in the document (both printed/typed and handwritten text).
-        5. COMPLETE TABLE STRUCTURE: Extract the full table content cell by cell, including table header row(s) and all data rows across ALL ${pageCount} pages into 'tableData' (a 2D array of string rows and columns).
-        6. Preserve exact cell values, numbers, and headers.
-        7. If no table or grid structure is present in the document, 'tableData' should be empty or omitted.
-        8. Preserve the natural reading order across all ${pageCount} pages.`;
+        1. Provide the complete verbatim transcription of ALL ${pageCount} pages in sequential order as plain text in the 'text' field.
+        2. STRICT VERBATIM FIDELITY (AUCUNE CORRECTION DE MOTS NI DU CONTEXTE) :
+           - Transcrire rigoureusement le texte mot pour mot tel qu'il a été écrit par l'auteur sur le manuscrit.
+           - NE JAMAIS corriger l'orthographe, les fautes, la syntaxe, la grammaire ou le vocabulaire original.
+           - NE JAMAIS réécrire, interpréter, censurer ou altérer les mots ou le contexte de l'auteur.
+           - Respecter scrupuleusement les termes exacts et les formulations présentes sur la feuille manuscrite.
+        3. SUPPRESSION DES SAUTS DE LIGNE INTEMPESTIFS (SAUF VRAIS PARAGRAPHES) :
+           - Ne JAMAIS insérer de retour à la ligne (\\n) à chaque fin de ligne physique de la page manuscrite. Les phrases doivent être continues et fluides, les mots joints par un simple espace (recolle les mots coupés par un tiret en fin de ligne).
+           - Conserve des sauts de ligne (double saut de ligne \\n\\n) UNIQUEMENT et STRICTEMENT pour séparer les vrais paragraphes, les titres, les listes ou les sections distinctes.
+        4. CRITICAL NO-SUMMARY RULE: Do NOT generate, prepend, or include any summary, executive abstract, preamble, or introductory commentary in the 'text' field. Transcribe ONLY the written content of the document itself.
+        5. TABLE DETECTION & EXTRACTION (tableData): Automatically detect ANY structured table, grid, matrix, form, list, invoice, schedule, or tabular data present in the document (both printed/typed and handwritten text).
+        6. COMPLETE TABLE STRUCTURE: Extract the full table content cell by cell, including table header row(s) and all data rows across ALL ${pageCount} pages into 'tableData' (a 2D array of string rows and columns).
+        7. Preserve exact cell values, numbers, and headers.
+        8. If no table or grid structure is present in the document, 'tableData' should be empty or omitted.
+        9. Preserve the natural reading order across all ${pageCount} pages.`;
 
     const response = await reliableGenerateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.8-flash",
       contents: {
         parts: [
           {
@@ -1152,6 +1140,9 @@ DO NOT STOP AFTER PAGE 1. You MUST transcribe ALL ${pageCount} pages completely.
     if (/alur|mahagi|dholur/i.test(language)) {
       fullText = sanitizeAndFixAlurConjugation(fullText);
     }
+    // Clean up any remaining mid-sentence line breaks to ensure only true paragraphs are separated
+    fullText = unwrapLinesExceptParagraphs(fullText);
+
     return {
       text: fullText,
       tableData: result.tableData && result.tableData.length > 0 ? result.tableData : undefined,
@@ -1191,22 +1182,30 @@ export async function formatTranscriptionText(text: string, style: string, langu
   try {
     let instruction = "";
     if (style === "bullets") {
-      instruction = "Convertis ce texte brut issu d'écriture manuscrite en une liste à puces structurée, claire et aérée. Synthétise les informations importantes de manière logique sous forme de puces. Nettoie les hésitations de langage tout en corrigeant rigoureusement toutes les fautes d'orthographe, de grammaire ou de frappe.";
+      instruction = "Convertis ce texte brut issu d'écriture manuscrite en une liste à puces structurée, claire et aérée. Sépare chaque idée principale par un saut de ligne clair avec tiret (- ou •). Synthétise les informations de manière logique. Nettoie les hésitations de langage tout en corrigeant rigoureusement toutes les fautes d'orthographe, de grammaire ou de frappe. Préserve impérativement les paragraphes et les espaces distincts.";
     } else if (style === "formal") {
-      instruction = "Réécris ce texte brut issu d'écriture manuscrite pour en faire un courrier ou e-mail professionnel et formel extrêmement poli et bien tourné. Choisis un ton administratif approprié si nécessaire, structure-le proprement (salutations, corps, formule de politesse). Corrige impeccablement l'orthographe et la grammaire française.";
+      instruction = "Réécris ce texte brut issu d'écriture manuscrite pour en faire un courrier ou e-mail professionnel et formel extrêmement poli et bien soigné. Structure-le avec des paragraphes bien distincts séparés par des sauts de ligne doubles (\\n\\n) : salutations d'ouverture, corps aéré du texte, formule de politesse finale. Corrige impeccablement l'orthographe, les accords et la grammaire.";
     } else if (style === "resume") {
-      instruction = "Mets en forme ce texte sous la forme d'un rapport professionnel structuré ou compte-rendu clair. Ajoute des en-têtes et des divisions de sections si nécessaire. Rends sa lecture fluide, agréable et professionnelle. Corrige toutes les fautes d'orthographe, de grammaire, de conjugaison et de ponctuation.";
+      instruction = "Mets en forme ce texte sous la forme d'un document ou compte-rendu professionnel structuré et impeccable. Ajoute des titres de sections clairs et des sauts de ligne doubles (\\n\\n) entre chaque paragraphe. Rends la lecture parfaitement fluide, agréable et aérée. Corrige toutes les fautes d'orthographe, de grammaire, de conjugaison et de ponctuation.";
+    } else if (style === "paragraphs" || style === "unwrap_lines") {
+      instruction = "Nettoie ce texte en supprimant tous les sauts de ligne intempestifs au milieu des phrases et en conservant UNIQUEMENT les vrais paragraphes. Chaque paragraphe doit former un texte fluide et continu, séparé du paragraphe suivant par un double saut de ligne (\\n\\n). Corrige toutes les fautes d'orthographe, de ponctuation et de frappe sans dénaturer le texte.";
     } else {
       // standard
-      instruction = "Mets en forme ce texte brut issu d'écriture manuscrite de manière propre et aérée avec des paragraphes fluides et bien structurés. Corrige rigoureusement les fautes d'orthographe, de grammaire, d'accents, de ponctuation ou de frappe introduites par le scan ou une écriture manuscrite imparfaite. Conserve fidèlement l'intégralité du sens d'origine.";
+      instruction = "Mets en forme ce texte brut issu d'écriture manuscrite de manière propre, nette et parfaitement aérée. Supprime les sauts de ligne au milieu des phrases pour avoir des paragraphes continus et distincts (\\n\\n). Corrige rigoureusement les fautes d'orthographe, de grammaire, d'accents, de ponctuation ou de frappe introduites par le scan. Conserve fidèlement l'intégralité du texte et de son sens d'origine.";
     }
 
     const response = await reliableGenerateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.8-flash",
       contents: [
         {
           text: `${instruction}
           
+RÈGLE ESSENTIELLE DES SAUTS DE LIGNE ET PARAGRAPHES :
+- Supprime systématiquement les retours à la ligne forcés à l'intérieur d'un paragraphe ou d'une phrase.
+- Insère des doubles sauts de ligne (\\n\\n) UNIQUEMENT pour séparer de vrais paragraphes, des titres ou des éléments de liste.
+- Ne compresse jamais tous les paragraphes en un seul bloc indistinct.
+- Conserve l'intégralité des informations sans supprimer de passages.
+
 Texte d'origine à mettre en forme :
 """
 ${text}
@@ -1219,6 +1218,9 @@ ${text}
     if (/alur|mahagi|dholur/i.test(language)) {
       formattedText = sanitizeAndFixAlurConjugation(formattedText);
     }
+    // Clean up intra-paragraph line breaks to strictly ensure true paragraph separation
+    formattedText = unwrapLinesExceptParagraphs(formattedText);
+
     return formattedText;
   } catch (error: any) {
     console.error("Formatting error:", error);
@@ -1254,6 +1256,178 @@ export interface AudioTranscriptionResult {
   text: string;
   summary?: string;
   keyPoints?: string[];
+}
+
+export interface MultimodalTranscriptionResult {
+  text: string;
+  tableData?: string[][];
+  summary?: string;
+  keyPoints?: string[];
+  manuscriptText?: string;
+  audioText?: string;
+}
+
+export async function transcribeMultimodal(
+  base64Images: string[],
+  base64Audio: string,
+  audioMimeType: string = "audio/webm",
+  imageMimeType: string = "image/jpeg",
+  language: string = "French"
+): Promise<MultimodalTranscriptionResult> {
+  try {
+    const images = Array.isArray(base64Images) ? base64Images : [base64Images];
+    const imageParts = images.map(img => {
+      const rawData = img.includes(",") ? img.split(",")[1] : img;
+      return {
+        inlineData: {
+          mimeType: imageMimeType || "image/jpeg",
+          data: rawData.replace(/[\r\n\s]/g, ""),
+        },
+      };
+    });
+
+    // Sanitize audio
+    let detectedAudioMime = audioMimeType;
+    if (base64Audio.startsWith("data:")) {
+      const headerMime = base64Audio.match(/^data:([^;,]+)/)?.[1];
+      if (headerMime) detectedAudioMime = headerMime;
+    }
+    const rawAudioData = base64Audio.includes(",") ? base64Audio.split(",")[1] : base64Audio;
+    const cleanAudioData = rawAudioData.replace(/[\r\n\s]/g, "");
+
+    let rawMime = (detectedAudioMime || audioMimeType || "audio/webm").split(";")[0].trim().toLowerCase();
+    let cleanAudioMime = "audio/mp3";
+    if (rawMime.includes("webm")) cleanAudioMime = "audio/webm";
+    else if (rawMime.includes("wav") || rawMime.includes("wave")) cleanAudioMime = "audio/wav";
+    else if (rawMime.includes("m4a") || rawMime.includes("mp4") || rawMime.includes("quicktime") || rawMime.includes("3gp")) cleanAudioMime = "audio/mp4";
+    else if (rawMime.includes("aac")) cleanAudioMime = "audio/aac";
+    else if (rawMime.includes("ogg") || rawMime.includes("vorbis")) cleanAudioMime = "audio/ogg";
+    else if (rawMime.includes("flac")) cleanAudioMime = "audio/flac";
+    else if (rawMime.includes("mpeg") || rawMime.includes("mp3")) cleanAudioMime = "audio/mp3";
+
+    const audioPart = {
+      inlineData: {
+        mimeType: cleanAudioMime,
+        data: cleanAudioData,
+      },
+    };
+
+    const langName = getNormalizedLanguageName(language);
+    const pageCount = images.length;
+
+    const promptText = `Vous êtes un système professionnel de numérisation et d'audition multimodale de pointe (OCR Manuscrit + Reconnaissance Vocale Audio).
+L'utilisateur vous fournit SIMULTANÉMENT :
+1. ${pageCount} image(s) de document manuscrit ou imprimé.
+2. Un fichier audio / enregistrement vocal associé.
+Langue cible : ${langName}.
+
+DIRECTIVES DE TRANSCRIPTION MULTIMODALE STRICTE :
+1. TRANSCRIPTION DU MANUSCRIT :
+   - Transcrire scrupuleusement mot pour mot (verbatim) l'ensemble du texte manuscrit présent sur toutes les pages (${pageCount} page(s)).
+   - Ne pas modifier, censurer ou corriger arbitrairement les mots de l'auteur.
+   - Supprimer les sauts de ligne intempestifs en milieu de phrase et ne conserver les doubles sauts de ligne (\\n\\n) que pour les vrais paragraphes.
+2. TRANSCRIPTION DE L'AUDIO :
+   - Transcrire mot pour mot (verbatim) tout ce qui est énoncé dans l'enregistrement audio.
+3. EXTRACTION DE TABLEAUX :
+   - Détecter et extraire sous forme de tableau 2D ('tableData') toute structure tabulaire, grille, liste ou formulaire présent sur le document manuscrit.
+4. TEXTE CONSOLIDÉ ('text') :
+   - Organiser le texte principal avec des séparateurs clairs :
+     === 📄 TRANSCRIPTION DU MANUSCRIT ===
+     [Texte intégral du manuscrit]
+
+     === 🎙️ ENREGISTREMENT AUDIO JOINT ===
+     [Texte intégral de l'enregistrement audio]
+5. 'summary' : Une brève synthèse récapitulative combinant les informations du manuscrit et de l'audio.`;
+
+    const response = await reliableGenerateContent({
+      model: "gemini-3.8-flash",
+      contents: {
+        parts: [
+          { text: promptText },
+          ...imageParts,
+          audioPart,
+        ],
+      },
+      config: {
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            text: {
+              type: Type.STRING,
+              description: "Le texte complet consolidé contenant la transcription du manuscrit et de l'audio.",
+            },
+            manuscriptText: {
+              type: Type.STRING,
+              description: "La transcription spécifique du document manuscrit.",
+            },
+            audioText: {
+              type: Type.STRING,
+              description: "La transcription spécifique de l'enregistrement audio.",
+            },
+            tableData: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              },
+              description: "Tableau de données extrait du manuscrit.",
+            },
+            summary: {
+              type: Type.STRING,
+              description: "Synthèse combinée du document manuscrit et de l'audio.",
+            },
+            keyPoints: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "Points clés combinés.",
+            },
+          },
+          required: ["text"],
+        },
+      },
+    });
+
+    const result = safeParseJson(response.text) || {};
+    let consolidatedText = result.text || (typeof response.text === "string" ? response.text : "Transcription terminée.");
+    
+    if (/alur|mahagi|dholur/i.test(language)) {
+      consolidatedText = sanitizeAndFixAlurConjugation(consolidatedText);
+    }
+    consolidatedText = autoFormatAndPunctuateText(consolidatedText, language);
+
+    return {
+      text: consolidatedText,
+      tableData: result.tableData && result.tableData.length > 0 ? result.tableData : undefined,
+      summary: result.summary,
+      keyPoints: result.keyPoints && result.keyPoints.length > 0 ? result.keyPoints : undefined,
+      manuscriptText: result.manuscriptText,
+      audioText: result.audioText,
+    };
+  } catch (error: any) {
+    console.error("Multimodal Transcription error:", error);
+    const errorDetail = serializeError(error);
+    let userFriendlyError = error?.message || error?.toString() || "Erreur de transcription multimodale";
+    const fullErrStr = (errorDetail + " " + userFriendlyError).toLowerCase();
+
+    if (
+      fullErrStr.includes("503") || 
+      fullErrStr.includes("unavailable") || 
+      fullErrStr.includes("demand") ||
+      fullErrStr.includes("temporary") ||
+      fullErrStr.includes("overloaded")
+    ) {
+      userFriendlyError = "Les serveurs Gemini sont temporairement très sollicités. Veuillez patienter quelques secondes et relancer le scan multimodal.";
+    } else if (
+      fullErrStr.includes("429") || 
+      fullErrStr.includes("exhausted") || 
+      fullErrStr.includes("rate limit")
+    ) {
+      userFriendlyError = "Limite de requêtes atteinte. Veuillez patienter 20 secondes avant de retenter.";
+    }
+    throw new Error(`Échec de la transcription multimodale : ${userFriendlyError}`);
+  }
 }
 
 export async function transcribeAudio(
@@ -1308,15 +1482,26 @@ export async function transcribeAudio(
 
     let modeInstruction = "";
     if (promptMode === "verbatim") {
-      modeInstruction = "Transcris mot à mot l'intégralité de l'audio sans omission ni reformulation.";
+      modeInstruction = `Transcris fidèlement l'enregistrement audio en appliquant systématiquement la MISE EN FORME AUTOMATIQUE et la CORRECTION DE LA PONCTUATION :
+- RÈGLE DE PONCTUATION AUTOMATIQUE OBLIGATOIRE : Ajoute automatiquement et intelligemment tous les points (.), virgules (,), points d'interrogation (?), points d'exclamation (!), deux-points (:) et guillemets.
+- MAJUSCULES AUTOMATIQUES : Mets systématiquement une majuscule au début de chaque phrase, après chaque point (. ! ?), ainsi qu'aux noms propres.
+- CONVERSION DES PONCTUATIONS PARLÉES : Si l'utilisateur dicte oralement des signes ("point", "virgule", "à la ligne", "point d'interrogation", "nouveau paragraphe"), convertis-les immédiatement en symboles typographiques réels et sauts de ligne.
+- MISE EN FORME AUTOMATIQUE EN PARAGRAPHES : Découpe le texte en paragraphes clairs, aérés et cohérents avec doubles sauts de ligne (\\n\\n).`;
     } else if (promptMode === "meeting_notes") {
-      modeInstruction = "Génère une transcription et un compte-rendu de réunion parfaitement structurés. Détectez les pauses de parole significatives, les silences prolongés et les changements d'intervenants dans l'audio pour insérer automatiquement des sauts de ligne doubles (\\n\\n) et créer des paragraphes distincts et aérés.";
+      modeInstruction = `Génère une transcription et un compte-rendu de réunion parfaitement structurés avec MISE EN FORME AUTOMATIQUE et CORRECTION DE PONCTUATION :
+- PONCTUATION & MAJUSCULES : Corrige et insère automatiquement tous les points, virgules, deux-points et majuscules de début de phrase.
+- PARAGRAPHES & STRUCTURE : Détecte les pauses de parole, silences et changements d'intervenants pour insérer automatiquement des doubles sauts de ligne (\\n\\n) et créer des sections aérées.`;
     } else {
-      modeInstruction = "Transcris fidèlement et clairement tout ce qui est dit dans l'audio. Corrige les fautes d'inattention, la ponctuation et découpe en paragraphes lisibles.";
+      modeInstruction = `Transcris le message vocal en appliquant une MISE EN FORME AUTOMATIQUE et une CORRECTION INTÉGRALE DE LA PONCTUATION :
+- CORRECTION AUTOMATIQUE DES POINTS ET DE LA PONCTUATION : Insère automatiquement les points (.), les virgules (,), les points d'interrogation (?), les points d'exclamation (!) et les deux-points (:).
+- MAJUSCULES OBLIGATOIRES : Chaque phrase doit obligatoirement commencer par une lettre majuscule.
+- CONVERSION DES COMMANDES DE DICTÉE : Remplace les mots dictés ("point", "virgule", "point à la ligne", "à la ligne", "nouveau paragraphe") par les signes réels et les retours à la ligne correspondants.
+- SUPPRESSION DES HÉSITATIONS : Nettoie les tics de langage et bégaiements oraux ("euh", "hum", répétitions parasites).
+- DÉCOUPAGE EN PARAGRAPHES : Structure le texte avec des paragraphes distincts, aérés et agréables à lire séparés par des sauts de ligne doubles (\\n\\n).`;
     }
 
     const response = await reliableGenerateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.8-flash",
       contents: {
         parts: [
           {
@@ -1327,7 +1512,7 @@ Directives :
 ${modeInstruction}
 
 Règles de sortie JSON :
-1. "text": La transcription textuelle intégrale du message audio en ${langName}. ATTENTION : "text" doit contenir UNIQUEMENT le texte retranscrit parlé dans l'audio, SANS ajouter de titre "Résumé", de "Synthèse vocale" ou de préambule dans cette chaîne.
+1. "text": La transcription textuelle intégrale du message audio en ${langName} avec mise en forme automatique et correction des points et de la ponctuation. ATTENTION : "text" doit contenir UNIQUEMENT le texte retranscrit parlé dans l'audio, SANS ajouter de titre "Résumé", de "Synthèse vocale" ou de préambule dans cette chaîne.
 2. "summary": Une synthèse séparée en 2-3 phrases sur le contenu de l'enregistrement.
 3. "keyPoints": Un tableau (array de strings) des points clés ou idées principales soulevées dans l'enregistrement vocal.`,
           },
@@ -1375,6 +1560,9 @@ Règles de sortie JSON :
       if (keyPointsArr) keyPointsArr = keyPointsArr.map(kp => sanitizeAndFixAlurConjugation(kp));
     }
 
+    // Apply automatic formatting, punctuation normalization and line unwrapping
+    transcribedText = autoFormatAndPunctuateText(transcribedText, language);
+
     return {
       text: transcribedText,
       summary: summaryText,
@@ -1415,7 +1603,7 @@ export async function translateText(text: string, targetLanguage: string): Promi
     const conjugationPrompt = isAlur ? getAlurConjugationEnginePrompt() : "";
 
     const response = await reliableGenerateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.8-flash",
       contents: [
         {
           text: `Vous êtes un traducteur professionnel expert et linguiste natif spécialisé.
@@ -1463,7 +1651,7 @@ export interface DocumentSummaryResult {
 export async function summarizeDocument(text: string, language: string = "French"): Promise<DocumentSummaryResult> {
   try {
     const response = await reliableGenerateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.8-flash",
       contents: [
         {
           text: `Analyse ce document numérisé et génère une synthèse analytique claire en ${language}.

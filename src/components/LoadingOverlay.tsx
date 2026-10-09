@@ -1,7 +1,14 @@
 import { motion } from "motion/react";
 import { Search } from "lucide-react";
+import { getTranslations } from "../lib/translations";
 
-export default function LoadingOverlay() {
+interface LoadingOverlayProps {
+  selectedLanguage?: string;
+}
+
+export default function LoadingOverlay({ selectedLanguage }: LoadingOverlayProps) {
+  const t = getTranslations(selectedLanguage);
+
   return (
     <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-zinc-950/90 backdrop-blur-md">
       <div className="relative w-64 h-72 border border-white/5 bg-zinc-900 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] flex items-center justify-center">
@@ -27,7 +34,9 @@ export default function LoadingOverlay() {
         />
         <div className="flex flex-col items-center gap-4 text-slate-500">
            <Search className="w-10 h-10 text-teal-500/30 animate-pulse" />
-           <div className="text-[7px] font-mono uppercase tracking-[0.4em] opacity-40">Faisceau de Scan d'Analyse</div>
+           <div className="text-[7px] font-mono uppercase tracking-[0.4em] opacity-40">
+             {t.loading?.scanningBeam || (t.scanner?.autoCropHd ? `${t.scanner.autoCropHd} • IA` : "Faisceau de Scan d'Analyse")}
+           </div>
         </div>
       </div>
       <div className="mt-8 flex flex-col items-center gap-3">
@@ -36,7 +45,7 @@ export default function LoadingOverlay() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
         >
-          Analyse du Manuscrit en cours...
+          {t.loading?.analyzingManuscript || t.scanner?.processBtn || "Analyse en cours..."}
         </motion.p>
         <div className="flex gap-1.5">
            {[0, 1, 2].map(i => (

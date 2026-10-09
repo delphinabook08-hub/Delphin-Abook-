@@ -1,9 +1,34 @@
+const CACHE_NAME = "abookscan-v4.1";
+const ASSETS_TO_CACHE = [
+  "/",
+  "/manifest.json",
+  "/favicon.png",
+  "/icon.png",
+  "/icon-192.png",
+  "/icon-maskable.png",
+  "/icon-maskable-192.png",
+  "/icon.jpg"
+];
+
 self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
+        console.warn("Precache failed for some assets:", err);
+      });
+    })
+  );
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(clients.claim());
+  event.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      );
+    }).then(() => clients.claim())
+  );
 });
 
 self.addEventListener("message", (event) => {
@@ -62,10 +87,29 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Do not intercept non-GET requests or API calls
+  // Do not intercept non-GET requests or API routes
   if (event.request.method !== "GET" || event.request.url.includes("/api/")) {
     return;
   }
-  // Simple fetch pass-through for other GET requests
-  event.respondWith(fetch(event.request));
+
+  // Network First with Cache Fallback for complete PWA compliance
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.status === 200 && event.request.url.startsWith(self.location.origin)) {
+          const resClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
+        }
+        return response;
+      })
+      .catch(() => {
+        return caches.match(event.request).then((cached) => {
+          if (cached) return cached;
+          if (event.request.mode === "navigate") {
+            return caches.match("/");
+          }
+          return new Response("Hors ligne", { status: 503, statusText: "Service Unavailable" });
+        });
+      })
+  );
 });

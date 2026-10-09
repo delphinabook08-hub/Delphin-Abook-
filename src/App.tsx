@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Zap, Globe, CreditCard, LayoutGrid, FileText, Loader2, Settings, Share2, Smartphone, Sparkles, X, Mic, Camera, Upload, HardDrive, FileAudio } from "lucide-react";
+import { Zap, Globe, CreditCard, LayoutGrid, FileText, Loader2, Settings, Share2, Smartphone, Sparkles, X, Mic, Camera, Upload, HardDrive, FileAudio, ArrowLeft, ArrowRight, RotateCcw, History } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
 import { compressImagesInParallel } from "./lib/imageCompressor";
 import { optimizeAudioBlob } from "./lib/audioCompressor";
@@ -16,8 +16,12 @@ import OnboardingModal from "./components/OnboardingModal";
 import LanguageSelectionModal from "./components/LanguageSelectionModal";
 import OfflineBanner from "./components/OfflineBanner";
 import { ForceUpdateModal } from "./components/ForceUpdateModal";
+import { AdminDashboardModal } from "./components/AdminDashboardModal";
+import { AppLogo } from "./components/AppLogo";
 import { checkAppVersion, CURRENT_APP_VERSION, RemoteVersionInfo } from "./lib/versionManager";
 import { getTranslations } from "./lib/translations";
+import { trackUserVisit, trackAnalyticsEvent } from "./lib/analytics";
+import { autoFormatAndPunctuateText } from "./lib/textUtils";
 
 export interface TranscriptionResult {
   text: string;
@@ -49,14 +53,19 @@ async function parseApiResponse<T = any>(response: Response, defaultErrorMsg: st
   const text = await response.text().catch(() => "");
   const trimmed = text.trim();
 
-  // Handle server warmup or Vite HTML fallback pages
+  // Handle server warmup, proxy 503/504 or Vite HTML fallback pages
   if (
     trimmed.startsWith("<!doctype") || 
     trimmed.startsWith("<html") || 
     trimmed.includes("Please wait while your application starts") ||
-    trimmed.includes("Starting Server")
+    trimmed.includes("Starting Server") ||
+    trimmed.includes("503 Service Unavailable") ||
+    trimmed.includes("504 Gateway")
   ) {
-    throw new Error("Le serveur est en cours de démarrage. Veuillez patienter un instant et réessayer.");
+    if (response.status === 503 || trimmed.includes("503") || trimmed.includes("high demand") || trimmed.includes("UNAVAILABLE")) {
+      throw new Error("Les serveurs d'IA sont temporairement très sollicités. Veuillez relancer l'analyse dans quelques secondes.");
+    }
+    throw new Error("Le serveur est en cours de synchronisation. Veuillez patienter un instant et réessayer.");
   }
 
   if (!response.ok) {
@@ -65,6 +74,12 @@ async function parseApiResponse<T = any>(response: Response, defaultErrorMsg: st
       const errObj = JSON.parse(trimmed);
       if (errObj && errObj.error) {
         serverError = errObj.error;
+        try {
+          const nested = JSON.parse(serverError);
+          if (nested?.error?.message) {
+            serverError = nested.error.message;
+          }
+        } catch (_) {}
       }
     } catch (_) {}
     throw new Error(serverError);
@@ -81,6 +96,8 @@ async function parseApiResponse<T = any>(response: Response, defaultErrorMsg: st
 export default function App() {
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [transcriptionResult, setTranscriptionResult] = useState<TranscriptionResult | null>(null);
+  const [lastTranscriptionResult, setLastTranscriptionResult] = useState<TranscriptionResult | null>(null);
+  const [lastCapturedImages, setLastCapturedImages] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState(() => {
@@ -109,21 +126,20 @@ export default function App() {
     return true;
   });
   
-  // Dynamic 3-month subscription expiration starting today
+  // Dynamic 3-month Pro access extension to allow application finalization
   const [proExpiryDate] = useState<string>(() => {
-    let saved = localStorage.getItem("scriptscan_pro_expiry");
-    if (!saved) {
-      const date = new Date("2026-06-09T15:11:58Z");
-      date.setMonth(date.getMonth() + 3);
-      saved = date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
-      localStorage.setItem("scriptscan_pro_expiry", saved);
-    }
-    return saved;
+    const date = new Date();
+    date.setMonth(date.getMonth() + 3);
+    const formattedDate = date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+    localStorage.setItem("scriptscan_pro", "true");
+    localStorage.setItem("scriptscan_pro_expiry", formattedDate);
+    return formattedDate;
   });
   const [showPaywall, setShowPaywall] = useState(false);
   const [isFinishingPayment, setIsFinishingPayment] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
+  const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
   const [isTermsOpen, setIsTermsOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(() => {
     return !localStorage.getItem("abookscan_onboarded");
@@ -140,7 +156,7 @@ export default function App() {
   });
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallBtn, setShowInstallBtn] = useState(false);
-  const [qrModalTab, setQrModalTab] = useState<"share" | "install">("share");
+  const [qrModalTab, setQrModalTab] = useState<"share" | "install" | "twa">("share");
   const [showFloatingInstallBanner, setShowFloatingInstallBanner] = useState(false);
   const [openedFileNotice, setOpenedFileNotice] = useState<string | null>(null);
   const directFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -164,6 +180,7 @@ export default function App() {
 
     // 1. Initial check upon loading
     performVersionVerification();
+    trackUserVisit(selectedLanguage);
 
     // 2. Periodic check every 2 minutes
     const interval = setInterval(performVersionVerification, 2 * 60 * 1000);
@@ -263,6 +280,56 @@ export default function App() {
     };
   }, [isScreenProtect]);
 
+  // Mode Retour : Prise en charge intelligente du bouton Retour Android & Navigateur (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      // 1. Priorité fermeture des modales si ouvertes
+      if (isAdminDashboardOpen) {
+        setIsAdminDashboardOpen(false);
+        return;
+      }
+      if (isSettingsOpen) {
+        setIsSettingsOpen(false);
+        return;
+      }
+      if (isQRModalOpen) {
+        setIsQRModalOpen(false);
+        return;
+      }
+      if (isTermsOpen) {
+        setIsTermsOpen(false);
+        return;
+      }
+      if (isLanguageModalOpen) {
+        setIsLanguageModalOpen(false);
+        return;
+      }
+      if (showPaywall) {
+        setShowPaywall(false);
+        return;
+      }
+      // 2. Si on est dans les résultats, retour fluide au scanner avec rétention en mémoire
+      if (transcriptionResult) {
+        setLastTranscriptionResult(transcriptionResult);
+        setLastCapturedImages(capturedImages);
+        setTranscriptionResult(null);
+        return;
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [
+    isAdminDashboardOpen, 
+    isSettingsOpen, 
+    isQRModalOpen, 
+    isTermsOpen, 
+    isLanguageModalOpen, 
+    showPaywall, 
+    transcriptionResult, 
+    capturedImages
+  ]);
+
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
@@ -274,7 +341,15 @@ export default function App() {
       }
     };
 
+    const handleAppInstalled = () => {
+      setShowInstallBtn(false);
+      setShowFloatingInstallBanner(false);
+      setDeferredPrompt(null);
+      console.log("AbookScan IA was successfully installed as a native WebAPK/PWA app!");
+    };
+
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
 
     // Automative delayed check for general PWA promotion (e.g. mobile Safari)
     const isCurrentlyStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
@@ -286,12 +361,14 @@ export default function App() {
       }, 5000);
       return () => {
         window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+        window.removeEventListener("appinstalled", handleAppInstalled);
         clearTimeout(timer);
       };
     }
 
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
     };
   }, []);
 
@@ -316,6 +393,14 @@ export default function App() {
     setQrModalTab("install");
     setIsQRModalOpen(true);
     setShowFloatingInstallBanner(false);
+  };
+
+  const handleInstallClick = () => {
+    if (deferredPrompt) {
+      handleInstallApp();
+    } else {
+      handleOpenInstallGuide();
+    }
   };
 
   useEffect(() => {
@@ -439,17 +524,27 @@ export default function App() {
       // Optimize images for ultra-fast and reliable multi-page network payload
       const optimizedImages = await compressImagesInParallel(base64Array, 1200, 0.85);
       
-      const response = await fetch("/api/transcribe", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          base64Images: optimizedImages,
-          mimeType,
-          language: selectedLanguage,
-        }),
+      const payload = JSON.stringify({
+        base64Images: optimizedImages,
+        mimeType,
+        language: selectedLanguage,
       });
+
+      let response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      });
+
+      // Seamless auto-retry on temporary 503 or demand spike
+      if (response.status === 503) {
+        await new Promise(res => setTimeout(res, 1200));
+        response = await fetch("/api/transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        });
+      }
 
       const result = await parseApiResponse<TranscriptionResult>(
         response, 
@@ -457,6 +552,12 @@ export default function App() {
       );
 
       setTranscriptionResult(result);
+      setLastTranscriptionResult(result);
+      setLastCapturedImages(base64Array);
+      try {
+        window.history.pushState({ view: "result" }, "");
+      } catch (_) {}
+      trackAnalyticsEvent("scan", { pages: base64Array.length });
       
       // Zero-Retention check: skip logging if in private mode
       if (!isPrivateMode) {
@@ -517,18 +618,27 @@ export default function App() {
     setError(null);
 
     try {
-      const response = await fetch("/api/transcribe-audio", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          audioBase64: base64Audio,
-          mimeType,
-          language: selectedLanguage,
-          promptMode,
-        }),
+      const audioPayload = JSON.stringify({
+        audioBase64: base64Audio,
+        mimeType,
+        language: selectedLanguage,
+        promptMode,
       });
+
+      let response = await fetch("/api/transcribe-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: audioPayload,
+      });
+
+      if (response.status === 503) {
+        await new Promise(res => setTimeout(res, 1200));
+        response = await fetch("/api/transcribe-audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: audioPayload,
+        });
+      }
 
       const result = await parseApiResponse<{ text: string; summary?: string; keyPoints?: string[] }>(
         response, 
@@ -553,11 +663,17 @@ export default function App() {
       };
 
       setTranscriptionResult(finalResult);
+      setLastTranscriptionResult(finalResult);
+      setLastCapturedImages([]);
+      try {
+        window.history.pushState({ view: "result" }, "");
+      } catch (_) {}
+      trackAnalyticsEvent("voice", { mode: promptMode });
 
       if (!isPrivateMode) {
         const newHistoryItem = {
           text: finalResult.text,
-          preview: "https://cdn-icons-png.flaticon.com/512/3235/3235042.png",
+          preview: "/icon.png",
           date: new Date().toLocaleString(),
           images: [],
           result: finalResult,
@@ -597,6 +713,147 @@ export default function App() {
     }
   };
 
+  const handleDirectTextCaptured = (text: string) => {
+    if (!text || !text.trim()) return;
+
+    // Apply automatic formatting and punctuation correction
+    const formatted = autoFormatAndPunctuateText(text, selectedLanguage);
+
+    const finalResult: TranscriptionResult = {
+      text: formatted || text.trim(),
+    };
+
+    setTranscriptionResult(finalResult);
+    setLastTranscriptionResult(finalResult);
+    setLastCapturedImages([]);
+    try {
+      window.history.pushState({ view: "result" }, "");
+    } catch (_) {}
+    trackAnalyticsEvent("voice", { mode: "direct" });
+
+    if (!isPrivateMode) {
+      const newHistoryItem = {
+        text: finalResult.text,
+        preview: "/icon.png",
+        date: new Date().toLocaleString(),
+        images: [],
+        result: finalResult,
+        type: "audio" as const,
+      };
+      
+      const updatedHistory = [newHistoryItem, ...history].slice(0, 5);
+      setHistory(updatedHistory);
+      try {
+        const lightweight = updatedHistory.map(h => ({
+          text: h.text,
+          date: h.date,
+          type: h.type,
+          result: h.result,
+          preview: h.preview && h.preview.length < 50000 ? h.preview : undefined
+        }));
+        localStorage.setItem("abookscan_history", JSON.stringify(lightweight));
+      } catch (e) {
+        console.warn("localStorage quota exceeded for direct voice history", e);
+      }
+    }
+  };
+
+  const handleMultimodalCaptured = async (
+    base64Images: string[],
+    base64Audio: string,
+    audioMimeType: string = "audio/webm"
+  ) => {
+    if (!isPro && scanCount >= FREE_LIMIT) {
+      setShowPaywall(true);
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setError(t.offline?.message || "Connexion Internet absente. Veuillez vérifier votre réseau Wi-Fi ou vos données mobiles.");
+      return;
+    }
+
+    setCapturedImages(base64Images);
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const optimizedImages = await compressImagesInParallel(base64Images, 1200, 0.85);
+
+      const multiPayload = JSON.stringify({
+        base64Images: optimizedImages,
+        audioBase64: base64Audio,
+        audioMimeType,
+        mimeType: "image/jpeg",
+        language: selectedLanguage,
+      });
+
+      let response = await fetch("/api/transcribe-multimodal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: multiPayload,
+      });
+
+      if (response.status === 503) {
+        await new Promise(res => setTimeout(res, 1200));
+        response = await fetch("/api/transcribe-multimodal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: multiPayload,
+        });
+      }
+
+      const result = await parseApiResponse<TranscriptionResult>(
+        response,
+        "La transcription combinée (audio + manuscrit) a échoué. Veuillez réessayer."
+      );
+
+      setTranscriptionResult(result);
+      setLastTranscriptionResult(result);
+      setLastCapturedImages(base64Images);
+      try {
+        window.history.pushState({ view: "result" }, "");
+      } catch (_) {}
+      trackAnalyticsEvent("multimodal_scan", { pages: base64Images.length });
+
+      if (!isPrivateMode) {
+        const newHistoryItem = {
+          text: result.text,
+          preview: base64Images[0] && base64Images[0].length < 100000 ? base64Images[0] : undefined,
+          date: new Date().toLocaleString(),
+          images: [],
+          result: result,
+          type: "multimodal",
+        };
+        const updatedHistory = [newHistoryItem, ...history].slice(0, 5);
+        setHistory(updatedHistory);
+        try {
+          const lightweight = updatedHistory.map(h => ({
+            text: h.text,
+            date: h.date,
+            type: h.type,
+            result: h.result,
+            preview: h.preview && h.preview.length < 50000 ? h.preview : undefined
+          }));
+          localStorage.setItem("abookscan_history", JSON.stringify(lightweight));
+        } catch (e) {
+          console.warn("localStorage quota reached for history", e);
+        }
+      }
+
+      if (!isPro) {
+        const newCount = scanCount + 1;
+        setScanCount(newCount);
+        localStorage.setItem("scriptscan_count", newCount.toString());
+      }
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : "Échec de l'analyse combinée");
+      console.error(err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleDirectLocalFileUpload = async (files: File[]) => {
     if (!files || files.length === 0) return;
     setError(null);
@@ -612,6 +869,25 @@ export default function App() {
       } else {
         docFiles.push(file);
       }
+    }
+
+    // Both audio and manuscript documents submitted together
+    if (audioFiles.length > 0 && docFiles.length > 0) {
+      setIsProcessing(true);
+      try {
+        const { processUploadedDocumentFiles } = await import("./lib/pdfConverter");
+        const rawImageUrls = await processUploadedDocumentFiles(docFiles);
+        const { base64: audioBase64, mimeType: audioMimeType } = await optimizeAudioBlob(audioFiles[0]);
+        if (rawImageUrls.length === 0) {
+          handleAudioCaptured(audioBase64, audioMimeType, "formatted");
+          return;
+        }
+        await handleMultimodalCaptured(rawImageUrls, audioBase64, audioMimeType);
+      } catch (err: any) {
+        setError("Erreur lors du traitement combiné audio et manuscrit : " + (err.message || "Fichiers invalides"));
+        setIsProcessing(false);
+      }
+      return;
     }
 
     if (audioFiles.length > 0) {
@@ -648,6 +924,10 @@ export default function App() {
   };
 
   const handleReset = () => {
+    if (transcriptionResult) {
+      setLastTranscriptionResult(transcriptionResult);
+      setLastCapturedImages(capturedImages);
+    }
     // Aggressive clearing for Private Mode document protection
     if (isPrivateMode) {
       setCapturedImages([]);
@@ -663,6 +943,18 @@ export default function App() {
     setError(null);
     if (!isPro && scanCount >= FREE_LIMIT) {
       setShowPaywall(true);
+    }
+  };
+
+  const handleRestoreLastResult = () => {
+    if (lastTranscriptionResult) {
+      setCapturedImages(lastCapturedImages);
+      setTranscriptionResult(lastTranscriptionResult);
+      try {
+        window.history.pushState({ view: "result" }, "");
+      } catch (_) {}
+    } else if (history.length > 0) {
+      selectHistoryItem(history[0]);
     }
   };
 
@@ -713,11 +1005,11 @@ export default function App() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
               </div>
-              <h2 className="text-xl font-display font-light text-white">Écran Sécurisé Actif</h2>
+              <h2 className="text-xl font-display font-light text-white">{t.hero.secureScreenActive}</h2>
               <p className="text-xs text-slate-500 leading-relaxed max-w-xs">
-                Le masquage d'arrière-plan AbookScan est actif pour préserver la confidentialité de vos transcriptions et documents des aperçus multitâches Android.
+                {t.hero.secureScreenDesc}
               </p>
-              <span className="text-[8px] font-mono uppercase tracking-[0.2em] text-teal-500/40 animate-pulse">Tapez n'importe où pour reprendre</span>
+              <span className="text-[8px] font-mono uppercase tracking-[0.2em] text-teal-500/40 animate-pulse">{t.hero.tapToResume}</span>
             </div>
           </motion.div>
         )}
@@ -739,7 +1031,7 @@ export default function App() {
       </div>
 
       <main className="relative z-10 container mx-auto px-6 py-6 min-h-screen flex flex-col">
-        {isProcessing && <LoadingOverlay />}
+        {isProcessing && <LoadingOverlay selectedLanguage={selectedLanguage} />}
         
         {showPaywall && (
           <motion.div 
@@ -807,6 +1099,11 @@ export default function App() {
               <div className="max-w-4xl mx-auto flex items-center gap-4 pointer-events-auto">
                 <div className="flex-1 overflow-x-auto no-scrollbar pb-2">
                   <div className="flex items-center gap-3 glass-card p-2 rounded-full w-max min-w-full sm:min-w-0">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 shrink-0">
+                      <AppLogo size="sm" />
+                      <span className="text-[10px] font-bold tracking-widest text-white uppercase">AbookScan</span>
+                    </div>
+
                     <div className="flex items-center gap-2 px-6 py-2.5 rounded-full text-[10px] uppercase font-bold tracking-[0.3em] bg-teal-500 text-black shadow-[0_0_30px_rgba(20,184,166,0.4)] whitespace-nowrap">
                       <LayoutGrid className="w-3.5 h-3.5" />
                       {t.nav.scanTab}
@@ -823,7 +1120,7 @@ export default function App() {
                     </button>
 
                     <button 
-                      onClick={shareApp}
+                      onClick={handleInstallClick}
                       className="flex items-center gap-2 px-5 py-2.5 rounded-full text-[10px] uppercase font-bold tracking-widest text-teal-400 hover:text-teal-300 transition-all whitespace-nowrap bg-teal-500/10 border border-teal-500/10 group"
                     >
                       {showInstallBtn ? (
@@ -912,8 +1209,31 @@ export default function App() {
                 </div>
               )}
 
+              {/* Hero Branding Header with Logo */}
+              <div className="flex flex-col items-center justify-center text-center space-y-3 pt-6 sm:pt-4">
+                <motion.div 
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="relative group cursor-pointer"
+                  onClick={() => setIsSettingsOpen(true)}
+                  title="AbookScan IA"
+                >
+                  <div className="absolute -inset-1 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-3xl blur-md opacity-40 group-hover:opacity-75 transition-opacity" />
+                  <AppLogo size="hero" />
+                </motion.div>
+
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight flex items-center justify-center gap-2">
+                    AbookScan <span className="text-teal-400">IA</span>
+                  </h1>
+                  <p className="text-xs text-slate-400 font-mono mt-1 max-w-sm mx-auto">
+                    {t.hero.subtitle}
+                  </p>
+                </div>
+              </div>
+
               {/* Mode Selector Tabs (OCR vs Voice Dictation vs Direct Local File Upload) */}
-              <div className="flex flex-wrap items-center justify-center gap-2.5 pt-8 sm:pt-4">
+              <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => setActiveTab("ocr")}
@@ -966,7 +1286,8 @@ export default function App() {
 
               {activeTab === "ocr" ? (
                 <Scanner 
-                  onImagesCaptured={handleImagesCaptured} 
+                  onImagesCaptured={handleImagesCaptured}
+                  onMultimodalCaptured={handleMultimodalCaptured}
                   selectedLanguage={selectedLanguage}
                   activeTab={activeTab}
                   onDirectFileUpload={handleDirectLocalFileUpload}
@@ -974,6 +1295,7 @@ export default function App() {
               ) : (
                 <VoiceRecorder
                   onAudioCaptured={handleAudioCaptured}
+                  onDirectTextCaptured={handleDirectTextCaptured}
                   selectedLanguage={selectedLanguage}
                   isProcessing={isProcessing}
                   onDirectFileUpload={handleDirectLocalFileUpload}
@@ -1003,6 +1325,7 @@ export default function App() {
               onReset={handleReset} 
               activeTab={activeTab}
               selectedLanguage={selectedLanguage}
+              theme={theme}
             />
           </div>
         )}
@@ -1030,6 +1353,16 @@ export default function App() {
           onThemeChange={handleThemeChange}
           isPro={isPro}
           proExpiryDate={proExpiryDate}
+          onOpenAdminStats={() => setIsAdminDashboardOpen(true)}
+          onOpenTwaGuide={() => {
+            setQrModalTab("twa");
+            setIsQRModalOpen(true);
+          }}
+        />
+        <AdminDashboardModal 
+          isOpen={isAdminDashboardOpen}
+          onClose={() => setIsAdminDashboardOpen(false)}
+          selectedLanguage={selectedLanguage}
         />
         <QRCodeModal 
           isOpen={isQRModalOpen}
@@ -1038,6 +1371,7 @@ export default function App() {
           onInstall={handleInstallApp}
           showInstallBtn={showInstallBtn}
           initialTab={qrModalTab}
+          selectedLanguage={selectedLanguage}
         />
         <TermsModal 
           isOpen={isTermsOpen}
@@ -1047,6 +1381,7 @@ export default function App() {
         />
         <OnboardingModal 
           isOpen={isOnboardingOpen}
+          selectedLanguage={selectedLanguage}
           onClose={() => {
             setIsOnboardingOpen(false);
             localStorage.setItem("abookscan_onboarded", "true");
@@ -1091,17 +1426,17 @@ export default function App() {
                 </div>
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[8px] font-mono uppercase tracking-widest text-teal-400 font-bold">Installation Rapide</span>
+                    <span className="text-[8px] font-mono uppercase tracking-widest text-teal-400 font-bold">{t.qrModal.title}</span>
                     <Sparkles className="w-3 h-3 text-teal-300 animate-pulse" />
                   </div>
-                  <h3 className="text-sm font-semibold text-white tracking-tight">Scanner en Pleine Vitesse</h3>
+                  <h3 className="text-sm font-semibold text-white tracking-tight">{t.qrModal.scanToInstall}</h3>
                 </div>
               </div>
 
               <p className="text-[11px] text-slate-400 leading-relaxed font-light">
                 {/iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()) 
-                  ? "Installez AbookScan IA sur l'écran d'accueil de votre iPhone via Safari pour un accès instantané en plein écran sans navigateur !"
-                  : "Découvrez l'intégration Android TWA et PWA pour installer l'application instantanément sur votre écran d'accueil, avec un confort de scan complet et sans bordures !"}
+                  ? t.qrModal.iosGuide
+                  : t.qrModal.androidGuide}
               </p>
 
               <div className="flex gap-2.5 mt-1">
@@ -1110,13 +1445,13 @@ export default function App() {
                   className="flex-1 py-2.5 bg-teal-500 text-black font-bold text-[10px] uppercase tracking-wider rounded-xl hover:bg-teal-400 transition-all shadow-[0_0_15px_rgba(20,184,166,0.3)] text-center flex items-center justify-center gap-1.5"
                 >
                   <Smartphone className="w-3 h-3" />
-                  {showInstallBtn ? "Installer l'App" : /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()) ? "Guide iPhone (Safari)" : "Comment Installer"}
+                  {showInstallBtn ? t.qrModal.installBtn : t.qrModal.installGuideTitle}
                 </button>
                 <button
                   onClick={handleDismissFloatingBanner}
                   className="px-4 py-2.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all text-center border border-white/5"
                 >
-                  Plus tard
+                  {t.settings.cancel}
                 </button>
               </div>
             </motion.div>
@@ -1130,15 +1465,19 @@ export default function App() {
           onClick={() => setIsTermsOpen(true)}
           className="px-3 py-1 bg-black/40 backdrop-blur-md border border-white/5 rounded-full text-[7px] uppercase tracking-[0.2em] text-slate-500 hover:text-teal-500 hover:border-teal-500/20 transition-all pointer-events-auto shadow-2xl"
         >
-          Conditions d'Utilisation • Confidentialité
+          {t.terms.title}
         </button>
         
-        <div className="px-4 py-1 bg-zinc-900/80 backdrop-blur-xl border border-white/5 rounded-full shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center gap-3">
+        <button
+          onClick={() => setIsAdminDashboardOpen(true)}
+          className="px-4 py-1 bg-zinc-900/80 backdrop-blur-xl border border-white/5 rounded-full shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center gap-3 pointer-events-auto hover:border-teal-500/30 transition-all cursor-pointer group"
+          title="Ouvrir la console administrateur"
+        >
           <div className="w-1 h-1 bg-teal-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(20,184,166,1)]" />
-          <p className="text-[9px] font-mono text-slate-500 tracking-widest uppercase">
-            Système Actif • AbookScan v2.4 • <span className="text-teal-500/70">Sécurisé</span>
+          <p className="text-[9px] font-mono text-slate-500 tracking-widest uppercase group-hover:text-slate-300 transition-colors">
+            AbookScan v2.4 • <span className="text-teal-500/70">IA {selectedLanguage}</span>
           </p>
-        </div>
+        </button>
       </footer>
     </div>
   );

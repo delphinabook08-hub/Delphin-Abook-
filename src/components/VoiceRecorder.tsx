@@ -4,15 +4,17 @@ import { motion, AnimatePresence } from "motion/react";
 import { useDropzone } from "react-dropzone";
 import { optimizeAudioBlob } from "../lib/audioCompressor";
 import { getTranslations } from "../lib/translations";
+import { autoFormatAndPunctuateText } from "../lib/textUtils";
 
 interface VoiceRecorderProps {
   onAudioCaptured: (base64Audio: string, mimeType: string, promptMode: "formatted" | "verbatim" | "meeting_notes") => void;
+  onDirectTextCaptured?: (text: string) => void;
   selectedLanguage: string;
   isProcessing?: boolean;
   onDirectFileUpload?: (files: File[]) => void;
 }
 
-export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isProcessing, onDirectFileUpload }: VoiceRecorderProps) {
+export default function VoiceRecorder({ onAudioCaptured, onDirectTextCaptured, selectedLanguage, isProcessing, onDirectFileUpload }: VoiceRecorderProps) {
   const t = getTranslations(selectedLanguage);
   const [activeSourceMode, setActiveSourceMode] = useState<"record" | "upload" | "meeting">("record");
   const [isRecording, setIsRecording] = useState(false);
@@ -26,12 +28,31 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
   const [audioError, setAudioError] = useState<string | null>(null);
   const [micVolume, setMicVolume] = useState<number>(0);
 
-  // Meeting Live Paragraph Transcript state & Pause Segment Detector
+  // Live Speech Recognition & Paragraph Transcript state
   const [liveMeetingParagraphs, setLiveMeetingParagraphs] = useState<string[]>([]);
+  const [soloLiveSentences, setSoloLiveSentences] = useState<string[]>([]);
   const [currentInterimTranscript, setCurrentInterimTranscript] = useState<string>("");
+  const [isEditingSoloText, setIsEditingSoloText] = useState(false);
+  const [editableSoloText, setEditableSoloText] = useState("");
   const [copiedTranscript, setCopiedTranscript] = useState(false);
   const [pauseThresholdSec, setPauseThresholdSec] = useState<number>(1.5);
   const [showPauseBreakAlert, setShowPauseBreakAlert] = useState(false);
+
+  const getSpeechRecognitionLang = (lang: string) => {
+    const l = (lang || "fr").toLowerCase();
+    if (l === "fr" || l.includes("franc") || l.includes("french")) return "fr-FR";
+    if (l === "en" || l.includes("anglais") || l.includes("english")) return "en-US";
+    if (l === "es" || l.includes("espagnol") || l.includes("spanish")) return "es-ES";
+    if (l === "de" || l.includes("allemand") || l.includes("german")) return "de-DE";
+    if (l === "it" || l.includes("italien") || l.includes("italian")) return "it-IT";
+    if (l === "pt" || l.includes("portugais") || l.includes("portuguese")) return "pt-PT";
+    if (l === "ar" || l.includes("arabe") || l.includes("arabic")) return "ar-SA";
+    if (l === "sw" || l.includes("swahili")) return "sw-TZ";
+    if (l === "zh" || l.includes("chinois")) return "zh-CN";
+    if (l === "nl" || l.includes("néerlandais")) return "nl-NL";
+    if (l === "ru" || l.includes("russe")) return "ru-RU";
+    return "fr-FR";
+  };
 
   const recognitionRef = useRef<any>(null);
   const isRecordingRef = useRef(false);
@@ -299,15 +320,20 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
           analyserRef.current = analyser;
 
           const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          let lastVisualizerUpdate = 0;
           const updateVolume = () => {
             if (analyserRef.current) {
-              analyserRef.current.getByteFrequencyData(dataArray);
-              let sum = 0;
-              for (let i = 0; i < dataArray.length; i++) {
-                sum += dataArray[i];
+              const now = Date.now();
+              if (now - lastVisualizerUpdate > 80) {
+                lastVisualizerUpdate = now;
+                analyserRef.current.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                  sum += dataArray[i];
+                }
+                const avg = sum / dataArray.length;
+                setMicVolume(avg);
               }
-              const avg = sum / dataArray.length;
-              setMicVolume(avg);
             }
             animFrameRef.current = requestAnimationFrame(updateVolume);
           };
@@ -368,11 +394,14 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
       requestWakeLock();
       setupMediaSession();
 
-      // If in meeting mode, start live speech recognition for real-time paragraph generation
-      if (activeSourceMode === "meeting") {
-        setLiveMeetingParagraphs([]);
-        startLiveSpeechRecognition();
-      }
+      // Start live speech recognition for real-time transcription across both solo dictation and meeting modes
+      setLiveMeetingParagraphs([]);
+      setSoloLiveSentences([]);
+      setCurrentInterimTranscript("");
+      currentInterimTranscriptRef.current = "";
+      setIsEditingSoloText(false);
+      setEditableSoloText("");
+      startLiveSpeechRecognition();
 
       mediaRecorder.start(200);
       setIsRecording(true);
@@ -390,8 +419,17 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
         document.title = `🔴 [${formatted}] Enregistrement vocal - AbookScan IA`;
       }, 500);
     } catch (err: any) {
-      console.error("Microphone error:", err);
-      setAudioError("Impossible d'accéder au microphone. Veuillez vérifier les autorisations dans votre navigateur.");
+      console.warn("Microphone access unavailable or denied:", err);
+      const isPermissionDenied = 
+        err?.name === "NotAllowedError" || 
+        err?.name === "PermissionDeniedError" || 
+        /permission|denied|allowed/i.test(String(err?.message || err));
+
+      if (isPermissionDenied) {
+        setAudioError("L'accès au microphone a été refusé par le navigateur. Vous pouvez autoriser le micro dans les paramètres ou importer directement un fichier audio existant ci-dessous.");
+      } else {
+        setAudioError("Impossible d'accéder au microphone (" + (err?.message || "Erreur de périphérique") + "). Vous pouvez également importer un fichier audio.");
+      }
     }
   };
 
@@ -423,7 +461,7 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
     }
   };
 
-  // Live speech recognition for Meeting Mode with instant word-by-word streaming & silence pause segment breaks
+  // Live speech recognition for both Solo and Meeting Mode with instant word-by-word streaming & silence pause detection
   const startLiveSpeechRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -439,7 +477,7 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = selectedLanguage === "fr" ? "fr-FR" : selectedLanguage === "en" ? "en-US" : selectedLanguage;
+      recognition.lang = getSpeechRecognitionLang(selectedLanguage);
 
       lastSpeechTimestampRef.current = Date.now();
       lastPauseBreakTimestampRef.current = Date.now();
@@ -453,8 +491,12 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
           if (event.results[i].isFinal) {
             if (transcript.trim()) {
               const timeFormatted = formatTime(getExactElapsedSeconds());
-              const paragraphEntry = `[Échange ${timeFormatted}] ${transcript.trim()}`;
-              setLiveMeetingParagraphs((prev) => [...prev, paragraphEntry]);
+              if (activeSourceModeRef.current === "meeting") {
+                const paragraphEntry = `[Échange ${timeFormatted}] ${transcript.trim()}`;
+                setLiveMeetingParagraphs((prev) => [...prev, paragraphEntry]);
+              } else {
+                setSoloLiveSentences((prev) => [...prev, transcript.trim()]);
+              }
               setCurrentInterimTranscript("");
               currentInterimTranscriptRef.current = "";
               lastPauseBreakTimestampRef.current = Date.now();
@@ -475,7 +517,7 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
       };
 
       recognition.onend = () => {
-        if (isRecordingRef.current && activeSourceModeRef.current === "meeting") {
+        if (isRecordingRef.current) {
           try { recognition.start(); } catch (err) {}
         }
       };
@@ -483,9 +525,9 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
       recognition.start();
       recognitionRef.current = recognition;
 
-      // Silence Pause Monitor Loop (Checks every 200ms if a silence pause threshold was reached)
+      // Silence Pause Monitor Loop (Checks every 200ms for automatic breaks in meeting mode)
       pauseCheckIntervalRef.current = setInterval(() => {
-        if (!isRecordingRef.current || activeSourceModeRef.current !== "meeting") return;
+        if (!isRecordingRef.current) return;
 
         const now = Date.now();
         const timeSinceSpeech = (now - lastSpeechTimestampRef.current) / 1000;
@@ -497,17 +539,19 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
           timeSinceSpeech >= threshold &&
           (now - lastPauseBreakTimestampRef.current) / 1000 >= threshold
         ) {
-          // Automatic paragraph break on speech pause threshold
           const timeFormatted = formatTime(getExactElapsedSeconds());
-          const paragraphEntry = `[Paragraphe ${timeFormatted} • Pause ${threshold}s] ${currentText}`;
+          if (activeSourceModeRef.current === "meeting") {
+            const paragraphEntry = `[Paragraphe ${timeFormatted} • Pause ${threshold}s] ${currentText}`;
+            setLiveMeetingParagraphs((prev) => [...prev, paragraphEntry]);
+            setShowPauseBreakAlert(true);
+            setTimeout(() => setShowPauseBreakAlert(false), 2500);
+          } else {
+            setSoloLiveSentences((prev) => [...prev, currentText]);
+          }
 
-          setLiveMeetingParagraphs((prev) => [...prev, paragraphEntry]);
           setCurrentInterimTranscript("");
           currentInterimTranscriptRef.current = "";
           lastPauseBreakTimestampRef.current = now;
-
-          setShowPauseBreakAlert(true);
-          setTimeout(() => setShowPauseBreakAlert(false), 2500);
         }
       }, 200);
 
@@ -545,8 +589,11 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
       recognitionRef.current = null;
     }
     setLiveMeetingParagraphs([]);
+    setSoloLiveSentences([]);
     setCurrentInterimTranscript("");
     currentInterimTranscriptRef.current = "";
+    setEditableSoloText("");
+    setIsEditingSoloText(false);
     setAudioBlob(null);
     setUploadedFileName(null);
     setUploadedFileSize(null);
@@ -799,6 +846,97 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
                 </button>
               )}
             </div>
+
+            {/* LIVE & INSTANT TRANSCRIPTION PREVIEW (Appears in real-time as user speaks & displays result before saving) */}
+            {(isRecording || soloLiveSentences.length > 0 || currentInterimTranscript || (audioBlob && !uploadedFileName)) && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full bg-slate-900/90 rounded-2xl p-4 border border-indigo-500/30 shadow-xl space-y-3 z-10 text-left"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400">
+                      <AlignLeft className="w-4 h-4" />
+                    </span>
+                    <span className="text-xs font-bold text-white flex items-center gap-2">
+                      {isRecording ? "Transcription vocale en direct (Temps réel)" : "Résultat de la transcription (Reconnaissance directe)"}
+                      {isRecording && (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-mono border border-emerald-500/30 flex items-center gap-1 animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                          Écoute active
+                        </span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {/* Copy button */}
+                    {(soloLiveSentences.length > 0 || currentInterimTranscript || editableSoloText) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const raw = editableSoloText || [...soloLiveSentences, currentInterimTranscript].filter(Boolean).join(" ");
+                          const fullText = autoFormatAndPunctuateText(raw, selectedLanguage);
+                          navigator.clipboard.writeText(fullText);
+                          setCopiedTranscript(true);
+                          setTimeout(() => setCopiedTranscript(false), 2000);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium border border-slate-700 flex items-center gap-1 transition-all"
+                        title="Copier le texte reconnu avec mise en forme et ponctuation automatiques"
+                      >
+                        {copiedTranscript ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedTranscript ? "Copié !" : "Copier"}</span>
+                      </button>
+                    )}
+
+                    {/* Direct Use / Open in ResultView Button */}
+                    {(soloLiveSentences.length > 0 || currentInterimTranscript || editableSoloText) && onDirectTextCaptured && !isRecording && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const raw = editableSoloText || [...soloLiveSentences, currentInterimTranscript].filter(Boolean).join(" ");
+                          const formatted = autoFormatAndPunctuateText(raw, selectedLanguage);
+                          if (formatted.trim()) {
+                            onDirectTextCaptured(formatted.trim());
+                          }
+                        }}
+                        className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-md shadow-emerald-600/20 flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
+                        title="Ouvrir directement ce texte avec mise en forme et ponctuation automatiques"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                        <span>Valider et ouvrir le résultat</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Text Display / Editable Area */}
+                <div className="bg-slate-950/90 rounded-xl p-3.5 border border-slate-800/80 min-h-[70px] max-h-48 overflow-y-auto">
+                  {soloLiveSentences.length === 0 && !currentInterimTranscript && !editableSoloText ? (
+                    <p className="text-xs text-slate-500 italic flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-600 animate-pulse" />
+                      {isRecording 
+                        ? "Parlez dans le micro, les mots s'affichent instantanément ici..." 
+                        : "Le texte reconnu apparaîtra ici dès le début de votre dictée."}
+                    </p>
+                  ) : (
+                    <div className="text-xs text-slate-200 leading-relaxed font-sans space-y-1.5">
+                      {soloLiveSentences.length > 0 && (
+                        <p className="text-slate-100 font-medium whitespace-pre-wrap">
+                          {soloLiveSentences.join(" ")}
+                        </p>
+                      )}
+                      {currentInterimTranscript && (
+                        <p className="text-indigo-300 font-medium italic animate-pulse">
+                          {currentInterimTranscript} <span className="inline-block w-1 h-3 bg-indigo-400 animate-pulse" />
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
           </div>
         )}
 
@@ -1040,21 +1178,42 @@ export default function VoiceRecorder({ onAudioCaptured, selectedLanguage, isPro
                   )}
                 </span>
 
-                {(liveMeetingParagraphs.length > 0 || currentInterimTranscript) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const fullText = [...liveMeetingParagraphs, currentInterimTranscript ? `[En cours] ${currentInterimTranscript}` : ""].filter(Boolean).join("\n\n");
-                      navigator.clipboard.writeText(fullText);
-                      setCopiedTranscript(true);
-                      setTimeout(() => setCopiedTranscript(false), 2000);
-                    }}
-                    className="text-[11px] font-bold text-indigo-300 hover:text-white flex items-center gap-1 bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/30 transition-all"
-                  >
-                    {copiedTranscript ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedTranscript ? "Copié !" : "Copier le texte live"}</span>
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {(liveMeetingParagraphs.length > 0 || currentInterimTranscript) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const raw = [...liveMeetingParagraphs, currentInterimTranscript ? `[En cours] ${currentInterimTranscript}` : ""].filter(Boolean).join("\n\n");
+                        const fullText = autoFormatAndPunctuateText(raw, selectedLanguage);
+                        navigator.clipboard.writeText(fullText);
+                        setCopiedTranscript(true);
+                        setTimeout(() => setCopiedTranscript(false), 2000);
+                      }}
+                      className="text-[11px] font-bold text-indigo-300 hover:text-white flex items-center gap-1 bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/30 transition-all"
+                    >
+                      {copiedTranscript ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedTranscript ? "Copié !" : "Copier"}</span>
+                    </button>
+                  )}
+
+                  {(liveMeetingParagraphs.length > 0 || currentInterimTranscript) && onDirectTextCaptured && !isRecording && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const raw = [...liveMeetingParagraphs, currentInterimTranscript ? `[En cours] ${currentInterimTranscript}` : ""].filter(Boolean).join("\n\n");
+                        const formatted = autoFormatAndPunctuateText(raw, selectedLanguage);
+                        if (formatted.trim()) {
+                          onDirectTextCaptured(formatted.trim());
+                        }
+                      }}
+                      className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-md shadow-emerald-600/20 flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
+                      title="Ouvrir directement la réunion dans l'éditeur avec mise en forme et ponctuation automatiques"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                      <span>Valider et ouvrir le résultat</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div
