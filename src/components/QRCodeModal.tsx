@@ -371,7 +371,7 @@ export default function QRCodeModal({
                   <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300 font-light">
                     <div className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      <span>Package ID: <code className="text-teal-300 font-mono text-[10px]">com.abookscan.app</code></span>
+                      <span>Package ID: <code className="text-teal-300 font-mono text-[10px]">com.abookscan.dello.it</code></span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />

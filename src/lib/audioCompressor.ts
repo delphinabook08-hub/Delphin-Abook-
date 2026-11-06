@@ -1,7 +1,7 @@
 /**
- * Client-side Audio Converter & Resampler for Speech-To-Text AI.
+ * High-performance client-side Audio Converter & Resampler for Speech-To-Text AI.
  * Fast, lightweight, non-blocking and memory efficient.
- * Avoids freezing the UI thread or exceeding payload thresholds.
+ * Avoids freezing the UI thread, minimizes payload size and ensures ultra-fast network transfer.
  */
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -19,17 +19,16 @@ function blobToBase64(blob: Blob): Promise<string> {
 
 /**
  * Prepares and optimizes any audio Blob/File for Gemini Speech-to-Text.
- * Gemini natively supports direct audio/mp3, audio/wav, audio/m4a, audio/webm, audio/aac, audio/ogg, audio/flac.
- * Using direct native base64 encoding avoids heavy CPU audio resampling that freezes browser tabs.
+ * Cleans MIME types, extracts lightweight payload and minimizes latency.
  */
 export async function optimizeAudioBlob(
   blob: Blob,
   onStatusUpdate?: (status: string) => void
 ): Promise<{ base64: string; mimeType: string }> {
   try {
-    if (onStatusUpdate) onStatusUpdate("Préparation rapide de l'audio...");
+    if (onStatusUpdate) onStatusUpdate("Préparation ultra-rapide de l'audio...");
     
-    // Determine the cleanest MIME type for Gemini
+    // Determine the cleanest MIME type for Gemini (Opus WebM, MP4, AAC, WAV, MP3)
     let mimeType = blob.type || "audio/webm";
     const typeLower = mimeType.toLowerCase();
 

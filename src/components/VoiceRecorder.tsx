@@ -302,7 +302,21 @@ export default function VoiceRecorder({ onAudioCaptured, onDirectTextCaptured, s
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Hardware-level audio enhancement: Noise suppression, echo cancellation & gain control
+      const audioConstraints: MediaTrackConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1, // Mono channel: 50% lighter and clearer for voice recognition
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: audioConstraints 
+      }).catch(async (fallbackErr) => {
+        // Safe fallback in case constraints are not supported on legacy devices
+        console.warn("Retrying with default audio stream:", fallbackErr);
+        return await navigator.mediaDevices.getUserMedia({ audio: true });
+      });
 
       // Audio visualizer setup with iOS Safari AudioContext resume handling
       try {
@@ -343,7 +357,7 @@ export default function VoiceRecorder({ onAudioCaptured, onDirectTextCaptured, s
         console.warn("AudioContext visualizer skipped:", err);
       }
 
-      // Determine mime type across iOS Safari, Chrome, and Android
+      // Determine mime type across iOS Safari, Chrome, and Android with optimal bitrate
       let mimeType = "audio/webm";
       if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported) {
         if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
@@ -361,8 +375,19 @@ export default function VoiceRecorder({ onAudioCaptured, onDirectTextCaptured, s
         }
       }
 
-      const recorderOptions = mimeType ? { mimeType } : undefined;
-      const mediaRecorder = new MediaRecorder(stream, recorderOptions);
+      // Use audioBitsPerSecond: 32000 (32 kbps voice standard) for crystal-clear voice and instant upload
+      const recorderOptions: MediaRecorderOptions = {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: 32000,
+      };
+
+      let mediaRecorder: MediaRecorder;
+      try {
+        mediaRecorder = new MediaRecorder(stream, recorderOptions);
+      } catch (e) {
+        // Fallback without bitrate constraint if device prefers native defaults
+        mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      }
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
@@ -1368,12 +1393,33 @@ export default function VoiceRecorder({ onAudioCaptured, onDirectTextCaptured, s
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="pt-3"
+            className="pt-3 flex flex-col sm:flex-row gap-3"
           >
+            {/* Quick Instant Validation (zero waiting) if live text was captured */}
+            {(soloLiveSentences.length > 0 || liveMeetingParagraphs.length > 0 || currentInterimTranscript || editableSoloText) && onDirectTextCaptured && (
+              <button
+                type="button"
+                onClick={() => {
+                  const raw = activeSourceMode === "meeting"
+                    ? [...liveMeetingParagraphs, currentInterimTranscript ? `[En cours] ${currentInterimTranscript}` : ""].filter(Boolean).join("\n\n")
+                    : (editableSoloText || [...soloLiveSentences, currentInterimTranscript].filter(Boolean).join(" "));
+                  const formatted = autoFormatAndPunctuateText(raw, selectedLanguage);
+                  if (formatted.trim()) {
+                    onDirectTextCaptured(formatted.trim());
+                  }
+                }}
+                className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-2xl shadow-xl shadow-emerald-600/25 flex items-center justify-center gap-2.5 transition-all hover:scale-[1.01] active:scale-95"
+                title="Ouvrir instantanément le texte reconnu en local sans attendre l'IA"
+              >
+                <Sparkles className="w-5 h-5 text-emerald-200" />
+                <span>Ouvrir Directement (Instantané ⚡)</span>
+              </button>
+            )}
+
             <button
               onClick={handleTranscribeClick}
               disabled={isProcessing || isCompressing}
-              className="w-full py-4 bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-sm rounded-2xl shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2.5 transition-all disabled:opacity-50 hover:scale-[1.01]"
+              className={`${(soloLiveSentences.length > 0 || liveMeetingParagraphs.length > 0) && onDirectTextCaptured ? "flex-1" : "w-full"} py-4 bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-sm rounded-2xl shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2.5 transition-all disabled:opacity-50 hover:scale-[1.01]`}
             >
               {isCompressing || isProcessing ? (
                 <>
@@ -1383,7 +1429,7 @@ export default function VoiceRecorder({ onAudioCaptured, onDirectTextCaptured, s
               ) : (
                 <>
                   <Sparkles className="w-5 h-5 text-indigo-200 animate-spin-slow" />
-                  <span>{t.voice.stopRecord}</span>
+                  <span>Transcrire & Structurer avec l'IA Gemini</span>
                 </>
               )}
             </button>

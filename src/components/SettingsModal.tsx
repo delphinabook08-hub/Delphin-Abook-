@@ -20,8 +20,6 @@ interface SettingsModalProps {
   onScreenProtectChange: (val: boolean) => void;
   theme?: "dark" | "light";
   onThemeChange?: (theme: "dark" | "light") => void;
-  isPro?: boolean;
-  proExpiryDate?: string;
   onOpenAdminStats?: () => void;
   onOpenTwaGuide?: () => void;
 }
@@ -41,8 +39,6 @@ export default function SettingsModal({
   onScreenProtectChange,
   theme = "dark",
   onThemeChange,
-  isPro = false,
-  proExpiryDate = "",
   onOpenAdminStats,
   onOpenTwaGuide
 }: SettingsModalProps) {
@@ -224,40 +220,32 @@ export default function SettingsModal({
                     </div>
                   </div>
 
-                  {/* Subscription Status */}
+                  {/* Free & Unlimited Access Status */}
                   <div className={`pt-6 border-t ${theme === "light" ? "border-slate-200" : "border-white/5"} space-y-3 font-sans`}>
                     <label className="text-[10px] uppercase tracking-widest text-teal-600 dark:text-teal-400 font-bold block">
-                      {t.settings.subscriptionStatus}
+                      Licence & Accès
                     </label>
-                    <div className={`p-4 rounded-2xl border flex flex-col gap-2 ${
+                    <div className={`p-4 rounded-2xl border flex flex-col gap-2.5 ${
                       theme === "light"
                         ? "bg-slate-50 border-slate-200"
                         : "bg-white/5 border-white/5"
                     }`}>
                       <div className="flex justify-between items-center bg-transparent">
-                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>{t.settings.accountType}</span>
-                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-widest font-bold ${
-                          isPro 
-                            ? "bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/30" 
-                            : "bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/30"
-                        }`}>
-                          {isPro ? t.nav.proAccount : t.nav.freeAccount}
+                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>Statut d'accès</span>
+                        <span className="px-2.5 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-widest font-bold bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/30 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse"></span>
+                          100% Gratuit & Illimité
                         </span>
                       </div>
                       <div className="flex justify-between items-center bg-transparent">
-                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>{t.settings.validity}</span>
-                        <span className={`text-xs font-mono font-medium ${theme === "light" ? "text-slate-800" : "text-slate-200"}`}>
-                          {isPro ? "Abonnement 3 Mois" : "Limité"}
+                        <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>Fonctionnalités</span>
+                        <span className={`text-xs font-medium ${theme === "light" ? "text-slate-800" : "text-slate-200"}`}>
+                          OCR, Audio, Multimodal & Exports complets
                         </span>
                       </div>
-                      {isPro && proExpiryDate && (
-                        <div className={`flex justify-between items-center border-t pt-2 mt-1 bg-transparent ${
-                          theme === "light" ? "border-slate-200" : "border-white/5"
-                        }`}>
-                          <span className={`text-xs ${theme === "light" ? "text-slate-600" : "text-slate-400"}`}>{t.settings.expiration}</span>
-                          <span className="text-xs text-teal-600 dark:text-teal-400 font-bold font-mono">{proExpiryDate}</span>
-                        </div>
-                      )}
+                      <p className={`text-[10px] leading-relaxed border-t pt-2 mt-0.5 ${theme === "light" ? "border-slate-200 text-slate-500" : "border-white/5 text-slate-400"}`}>
+                        Aucun paiement ni abonnement requis. Toutes les capacités d'intelligence artificielle Gemini sont ouvertes sans quota.
+                      </p>
                     </div>
                   </div>
 
