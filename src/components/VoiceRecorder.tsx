@@ -514,13 +514,15 @@ export default function VoiceRecorder({ onAudioCaptured, onDirectTextCaptured, s
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const transcript = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            if (transcript.trim()) {
+            const rawSentence = transcript.trim();
+            if (rawSentence) {
               const timeFormatted = formatTime(getExactElapsedSeconds());
               if (activeSourceModeRef.current === "meeting") {
-                const paragraphEntry = `[Échange ${timeFormatted}] ${transcript.trim()}`;
-                setLiveMeetingParagraphs((prev) => [...prev, paragraphEntry]);
+                // In meeting mode, each speech chunk is formatted as a clear paragraph block
+                const cleanedSentence = autoFormatAndPunctuateText(rawSentence, selectedLanguage);
+                setLiveMeetingParagraphs((prev) => [...prev, cleanedSentence]);
               } else {
-                setSoloLiveSentences((prev) => [...prev, transcript.trim()]);
+                setSoloLiveSentences((prev) => [...prev, rawSentence]);
               }
               setCurrentInterimTranscript("");
               currentInterimTranscriptRef.current = "";
@@ -550,7 +552,7 @@ export default function VoiceRecorder({ onAudioCaptured, onDirectTextCaptured, s
       recognition.start();
       recognitionRef.current = recognition;
 
-      // Silence Pause Monitor Loop (Checks every 200ms for automatic breaks in meeting mode)
+      // Silence Pause Monitor Loop (Checks every 200ms: if user pauses, create an intentional paragraph break)
       pauseCheckIntervalRef.current = setInterval(() => {
         if (!isRecordingRef.current) return;
 
@@ -559,19 +561,19 @@ export default function VoiceRecorder({ onAudioCaptured, onDirectTextCaptured, s
         const currentText = currentInterimTranscriptRef.current.trim();
         const threshold = pauseThresholdSecRef.current;
 
+        // When a silence pause exceeds the threshold and there is uncommitted speech:
         if (
           currentText.length > 0 &&
           timeSinceSpeech >= threshold &&
           (now - lastPauseBreakTimestampRef.current) / 1000 >= threshold
         ) {
-          const timeFormatted = formatTime(getExactElapsedSeconds());
+          const cleanedText = autoFormatAndPunctuateText(currentText, selectedLanguage);
           if (activeSourceModeRef.current === "meeting") {
-            const paragraphEntry = `[Paragraphe ${timeFormatted} • Pause ${threshold}s] ${currentText}`;
-            setLiveMeetingParagraphs((prev) => [...prev, paragraphEntry]);
+            setLiveMeetingParagraphs((prev) => [...prev, cleanedText]);
             setShowPauseBreakAlert(true);
             setTimeout(() => setShowPauseBreakAlert(false), 2500);
           } else {
-            setSoloLiveSentences((prev) => [...prev, currentText]);
+            setSoloLiveSentences((prev) => [...prev, cleanedText]);
           }
 
           setCurrentInterimTranscript("");

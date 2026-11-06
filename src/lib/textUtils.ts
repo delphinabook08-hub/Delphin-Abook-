@@ -89,9 +89,6 @@ export function autoFormatAndPunctuateText(rawText: string, language: string = "
 
   let result = formattedParagraphs.filter(Boolean).join("\n\n");
 
-  // 5. Ensure paragraph unwrapping doesn't break list items
-  result = unwrapLinesExceptParagraphs(result);
-
   return result.trim();
 }
 

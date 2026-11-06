@@ -1091,9 +1091,10 @@ DO NOT STOP AFTER PAGE 1. You MUST transcribe ALL ${pageCount} pages completely.
            - NE JAMAIS corriger l'orthographe, les fautes, la syntaxe, la grammaire ou le vocabulaire original.
            - NE JAMAIS réécrire, interpréter, censurer ou altérer les mots ou le contexte de l'auteur.
            - Respecter scrupuleusement les termes exacts et les formulations présentes sur la feuille manuscrite.
-        3. SUPPRESSION DES SAUTS DE LIGNE INTEMPESTIFS (SAUF VRAIS PARAGRAPHES) :
-           - Ne JAMAIS insérer de retour à la ligne (\\n) à chaque fin de ligne physique de la page manuscrite. Les phrases doivent être continues et fluides, les mots joints par un simple espace (recolle les mots coupés par un tiret en fin de ligne).
-           - Conserve des sauts de ligne (double saut de ligne \\n\\n) UNIQUEMENT et STRICTEMENT pour séparer les vrais paragraphes, les titres, les listes ou les sections distinctes.
+        3. ESPACEMENT PARFAIT ENTRE LES MOTS & SAUTS DE LIGNE (RÈGLE OBLIGATOIRE) :
+           - Veille à ce que chaque mot soit séparé du mot suivant par un ESPACE CLAIR. Ne jamais coller deux mots ensemble (ex: 'dansla' -> 'dans la', 'surle' -> 'sur le').
+           - Supprime les retours à la ligne au milieu des phrases causés par les marges physiques du papier (les phrases doivent être fluides et continues).
+           - Insère STRICTEMENT un DOUBLE SAUT DE LIGNE (\\n\\n) entre chaque paragraphe, titre ou changement de bloc pour aérer et structurer la lecture. Ne colle JAMAIS tout le texte en un seul bloc condensé.
         4. CRITICAL NO-SUMMARY RULE: Do NOT generate, prepend, or include any summary, executive abstract, preamble, or introductory commentary in the 'text' field. Transcribe ONLY the written content of the document itself.
         5. TABLE DETECTION & EXTRACTION (tableData): Automatically detect ANY structured table, grid, matrix, form, list, invoice, schedule, or tabular data present in the document (both printed/typed and handwritten text).
         6. COMPLETE TABLE STRUCTURE: Extract the full table content cell by cell, including table header row(s) and all data rows across ALL ${pageCount} pages into 'tableData' (a 2D array of string rows and columns).
@@ -1488,9 +1489,11 @@ export async function transcribeAudio(
 - CONVERSION DES PONCTUATIONS PARLÉES : Si l'utilisateur dicte oralement des signes ("point", "virgule", "à la ligne", "point d'interrogation", "nouveau paragraphe"), convertis-les immédiatement en symboles typographiques réels et sauts de ligne.
 - MISE EN FORME AUTOMATIQUE EN PARAGRAPHES : Découpe le texte en paragraphes clairs, aérés et cohérents avec doubles sauts de ligne (\\n\\n).`;
     } else if (promptMode === "meeting_notes") {
-      modeInstruction = `Génère une transcription et un compte-rendu de réunion parfaitement structurés avec MISE EN FORME AUTOMATIQUE et CORRECTION DE PONCTUATION :
-- PONCTUATION & MAJUSCULES : Corrige et insère automatiquement tous les points, virgules, deux-points et majuscules de début de phrase.
-- PARAGRAPHES & STRUCTURE : Détecte les pauses de parole, silences et changements d'intervenants pour insérer automatiquement des doubles sauts de ligne (\\n\\n) et créer des sections aérées.`;
+      modeInstruction = `Génère une transcription de réunion et conférence INTÉGRALEMENT STRUCTURÉE EN PARAGRAPHES DISTINCTS ET AÉRÉS :
+- DÉCOUPAGE STRICT EN PARAGRAPHES (OBLIGATOIRE) : Chaque idée, chaque intervention, chaque changement de sujet et chaque pause de parole doit être un paragraphe séparé par un DOUBLE SAUT DE LIGNE (\\n\\n). Ne produis JAMAIS un seul bloc de texte compact ou condensé.
+- PONCTUATION & MAJUSCULES PARFAITES : Insère tous les points (.), virgules (,), deux-points (:), points d'interrogation (?) et majuscules au début de chaque phrase.
+- ESPACES ET RESPIRATION DU TEXTE : Veille à ce qu'il y ait des espaces normaux entre chaque mot, et des doubles sauts de ligne (\\n\\n) entre chaque paragraphe pour rendre le compte-rendu immédiatement lisible et professionnel.
+- CHANGEMENTS D'INTERVENANTS OU DE TEMPS : Si plusieurs personnes parlent ou s'il y a des reprises après une pause, saute deux lignes pour créer un nouveau paragraphe clair.`;
     } else {
       modeInstruction = `Transcris le message vocal en appliquant une MISE EN FORME AUTOMATIQUE et une CORRECTION INTÉGRALE DE LA PONCTUATION :
 - CORRECTION AUTOMATIQUE DES POINTS ET DE LA PONCTUATION : Insère automatiquement les points (.), les virgules (,), les points d'interrogation (?), les points d'exclamation (!) et les deux-points (:).

@@ -1506,6 +1506,47 @@ export default function ResultView({ images, result, onReset, activeTab, selecte
               )}
             </div>
 
+            {/* Document Content Area: Text View or Table View */}
+            <div className="flex-1 p-6 overflow-y-auto min-h-[380px]">
+              {activeViewMode === "table" ? (
+                <div className="w-full">
+                  <TableView 
+                    initialData={tableData && tableData.length > 0 ? tableData : [["En-tête 1", "En-tête 2"], ["", ""]]}
+                    onDataChange={(newData) => setTableData(newData)}
+                    fileName={fileName}
+                    isEditable={isEditing}
+                  />
+                </div>
+              ) : (
+                <textarea
+                  value={editableText}
+                  onChange={(e) => setEditableText(e.target.value)}
+                  readOnly={!isEditing}
+                  rows={14}
+                  className={`w-full h-full min-h-[360px] bg-transparent outline-none border-none resize-none whitespace-pre-wrap ${
+                    fontFamily === "serif" ? "font-serif" : fontFamily === "mono" ? "font-mono" : "font-sans"
+                  } ${isBold ? "font-bold" : "font-normal"} ${
+                    textSize === "sm" ? "text-xs" : textSize === "base" ? "text-sm" : textSize === "xl" ? "text-lg" : "text-base"
+                  } ${
+                    lineSpacing === "normal" ? "leading-normal space-y-2" : lineSpacing === "loose" ? "leading-loose space-y-6" : "leading-relaxed space-y-4"
+                  } ${
+                    textAlign === "center" ? "text-center" : textAlign === "justify" ? "text-justify" : "text-left"
+                  } ${
+                    textColor === "high-contrast" 
+                      ? (isDark ? "text-white" : "text-black") 
+                      : textColor === "emerald" 
+                      ? "text-emerald-400" 
+                      : textColor === "indigo" 
+                      ? "text-indigo-400" 
+                      : textColor === "sepia" 
+                      ? "text-amber-500" 
+                      : (isDark ? "text-slate-200" : "text-slate-800")
+                  }`}
+                  placeholder="Le texte extrait apparaîtra ici avec ses paragraphes et espacements..."
+                />
+              )}
+            </div>
+
             {isEditing && activeViewMode === "text" && (
               <motion.div 
                 initial={{ y: 20, opacity: 0 }}
